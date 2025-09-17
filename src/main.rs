@@ -1,4 +1,5 @@
 use masonry::kurbo::Point;
+use winit::{dpi::LogicalSize, window::Window};
 use xilem::{
     view::{flex, label},
     EventLoop, WidgetView, Xilem,
@@ -24,6 +25,10 @@ fn app_logic(data: &mut State) -> impl WidgetView<State> + use<> {
 
 fn main() {
     let app = Xilem::new(State::default(), app_logic);
-    app.run_windowed(EventLoop::with_user_event(), "wi".into())
+    let attrs = Window::default_attributes()
+        .with_title("hi!")
+        .with_min_inner_size(LogicalSize::new(525.0, 350.0))
+        .with_resizable(true);
+    app.run_windowed_in(EventLoop::with_user_event(), attrs)
         .unwrap();
 }

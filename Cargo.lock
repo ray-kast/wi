@@ -3283,6 +3283,7 @@ dependencies = [
  "masonry",
  "smallvec",
  "tracing",
+ "winit",
  "xilem",
 ]
 
