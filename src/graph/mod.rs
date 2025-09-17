@@ -1,11 +1,10 @@
-mod widgets {
-    mod edge;
-    mod graph;
-    mod node;
-
-    pub use graph::Graph;
-}
+mod widget;
 mod view;
-mod data;
 
 pub use view::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Port {
+    node: usize,
+    port: usize,
+}

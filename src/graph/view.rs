@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use masonry::kurbo::Point;
 use xilem::{
@@ -6,45 +6,24 @@ use xilem::{
     Pod, ViewCtx,
 };
 
-use crate::graph::{data::PortId, widgets};
+use crate::graph::{widget, Port};
 
 pub fn graph() -> GraphView {
     GraphView {
-        nodes: vec![],
-        free_node: 0,
-        edges: HashSet::new(),
+        nodes: HashMap::new(),
+        fresh_node: 0,
     }
 }
 
 pub(super) struct Node {
     pub(super) pos: Point,
-}
-
-pub(super) enum NodeSlot {
-    Free { next: usize },
-    Node(Node),
-}
-
-impl NodeSlot {
-    pub fn is_node(&self) -> bool {
-        match self {
-            Self::Free {..} => false,
-            Self::Node(_) => true,
-        }
-    }
-
-    pub fn node(&self) -> Option<&Node> {
-        match self {
-            Self::Free { .. } => None,
-            Self::Node(n) => Some(n),
-        }
-    }
+    pub(super) in_edges: Vec<Option<Port>>,
+    pub(super) out_arity: usize,
 }
 
 pub struct GraphView {
-    pub(super) nodes: Vec<NodeSlot>,
-    free_node: usize,
-    pub(super) edges: HashSet<(PortId, PortId)>,
+    pub(super) nodes: HashMap<usize, Node>,
+    fresh_node: usize,
 }
 
 impl GraphView {
@@ -53,47 +32,53 @@ impl GraphView {
         self
     }
 
-    pub fn node(&mut self, pos: Point) -> &mut Self {
-        if self.free_node == usize::MAX {
+    pub fn node(&mut self, pos: Point, in_arity: usize, out_arity: usize) -> &mut Self {
+        use std::collections::hash_map::Entry;
+
+        if self.fresh_node == usize::MAX {
             panic!("Maximum node count exceeded!");
         }
 
-        let node = Node { pos };
+        let node = Node {
+            pos,
+            in_edges: vec![None; in_arity],
+            out_arity,
+        };
 
-        match self.nodes.get_mut(self.free_node) {
-            None => {
-                self.nodes.push(NodeSlot::Node(node));
-                self.free_node = self.nodes.len();
-            },
-            Some(NodeSlot::Node(_)) => unreachable!(),
-            Some(n @ &mut NodeSlot::Free { next }) => {
-                *n = NodeSlot::Node(node);
-                self.free_node = next;
-            },
-        }
+        let Entry::Vacant(v) = self.nodes.entry(self.fresh_node) else {
+            unreachable!();
+        };
+
+        v.insert(node);
+        self.fresh_node += 1;
 
         self
     }
 
     pub fn edge(&mut self, from: (usize, usize), to: (usize, usize)) -> &mut Self {
         let (node, port) = from;
-        let from = PortId { node, port };
+        assert!(port < self.nodes[&node].out_arity, "Invalid edge from-port");
+        let from = Port { node, port };
 
         let (node, port) = to;
-        let to = PortId { node, port };
+        assert!(
+            self.nodes.get_mut(&node).unwrap().in_edges[port]
+                .replace(from)
+                .is_none(),
+            "Attempted to insert duplicate edge"
+        );
 
-        self.edges.insert((from, to));
         self
     }
 }
 
 impl ViewMarker for GraphView {}
 impl<S, A> View<S, A, ViewCtx> for GraphView {
-    type Element = Pod<widgets::Graph>;
+    type Element = Pod<widget::Graph>;
     type ViewState = ();
 
     fn build(&self, ctx: &mut ViewCtx) -> (Self::Element, Self::ViewState) {
-        let graph = widgets::Graph::new(self);
+        let graph = widget::Graph::new(self);
         (ctx.with_action_widget(|c| c.new_pod(graph)), ())
     }
 
