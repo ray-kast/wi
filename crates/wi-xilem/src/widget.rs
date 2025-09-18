@@ -14,6 +14,7 @@ use xilem::{Affine, Vec2};
 
 use crate::Port;
 
+#[derive(Debug)]
 struct Node {
     pos: Point,
     in_edges: Vec<Option<Port>>,
@@ -41,6 +42,7 @@ impl Node {
     }
 }
 
+#[derive(Debug)]
 pub struct Graph {
     nodes: HashMap<usize, Node>,
     focus_node: usize,

@@ -15,12 +15,15 @@ pub fn graph() -> GraphView {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Node {
     pub(super) pos: Point,
     pub(super) in_edges: Vec<Option<Port>>,
     pub(super) out_arity: usize,
 }
 
+#[must_use]
+#[derive(Debug)]
 pub struct GraphView {
     pub(super) nodes: HashMap<usize, Node>,
     fresh_node: usize,
@@ -35,9 +38,7 @@ impl GraphView {
     pub fn node(&mut self, pos: Point, in_arity: usize, out_arity: usize) -> &mut Self {
         use std::collections::hash_map::Entry;
 
-        if self.fresh_node == usize::MAX {
-            panic!("Maximum node count exceeded!");
-        }
+        assert!(self.fresh_node != usize::MAX, "Maximum node count exceeded!");
 
         let node = Node {
             pos,

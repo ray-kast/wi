@@ -19,9 +19,9 @@ xilem = "0.3.0"
 wi-core = { path = "crates/wi-core" }
 wi-xilem = { path = "crates/wi-xilem" }
 
-# [workspace.lints.rust]
-# missing_debug_implementations = "deny"
-# missing_copy_implementations = "deny"
+[workspace.lints.rust]
+missing_debug_implementations = "deny"
+missing_copy_implementations = "deny"
 # missing_docs = "warn"
 
 [workspace.lints.rustdoc]
