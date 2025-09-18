@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 
 use masonry::{
-    core::Widget,
+    core::{
+        keyboard::{Key, KeyState},
+        Ime, KeyboardEvent, TextEvent, Widget,
+    },
     kurbo::{Circle, PathEl, Point, Rect, Size, Stroke},
     peniko::{color::OpaqueColor, Fill},
 };
 use smallvec::smallvec;
+use tracing::info;
 use xilem::{Affine, Vec2};
 
-use crate::graph::Port;
+use crate::Port;
 
 struct Node {
     pos: Point,
@@ -39,10 +43,11 @@ impl Node {
 
 pub struct Graph {
     nodes: HashMap<usize, Node>,
+    focus_node: usize,
 }
 
 impl Graph {
-    pub fn new(graph: &crate::graph::GraphView) -> Self {
+    pub fn new(graph: &crate::GraphView) -> Self {
         Self {
             nodes: graph
                 .nodes
@@ -55,11 +60,16 @@ impl Graph {
                     })
                 })
                 .collect(),
+            focus_node: graph.nodes.keys().copied().min().unwrap_or(usize::MAX),
         }
     }
 }
 
 impl Widget for Graph {
+    fn accepts_focus(&self) -> bool { true }
+
+    fn accepts_text_input(&self) -> bool { true }
+
     fn register_children(&mut self, ctx: &mut masonry::core::RegisterCtx) {}
 
     fn layout(
@@ -101,13 +111,17 @@ impl Widget for Graph {
             }
         }
 
-        for node in self.nodes.values() {
+        for (&i, node) in &self.nodes {
             let rect = node.rect();
 
             scene.stroke(
                 &Stroke::new(4.0),
                 Affine::IDENTITY,
-                OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a),
+                if self.focus_node == i {
+                    OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+                } else {
+                    OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a)
+                },
                 None,
                 &rect,
             );
@@ -137,14 +151,53 @@ impl Widget for Graph {
     // TODO: review
     fn accessibility_role(&self) -> accesskit::Role { accesskit::Role::ScrollView }
 
-    // TODO
     fn accessibility(
         &mut self,
         ctx: &mut masonry::core::AccessCtx,
         _props: &masonry::core::PropertiesRef<'_>,
         node: &mut accesskit::Node,
     ) {
+        for node in &self.nodes {
+            // TODO
+        }
     }
 
     fn children_ids(&self) -> smallvec::SmallVec<[masonry::core::WidgetId; 16]> { smallvec![] }
+
+    fn on_text_event(
+        &mut self,
+        ctx: &mut masonry::core::EventCtx,
+        _props: &mut masonry::core::PropertiesMut<'_>,
+        event: &TextEvent,
+    ) {
+        match event {
+            TextEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
+                key: Key::Character(s),
+                modifiers,
+                is_composing: false,
+                ..
+            }) => info!(?s, ?modifiers),
+            TextEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
+                key: Key::Named(k),
+                modifiers,
+                is_composing: false,
+                ..
+            }) => info!(?k, ?modifiers),
+            TextEvent::Ime(Ime::Commit(s)) => info!(?s),
+            _ => return,
+        }
+        ctx.set_handled();
+    }
+
+    fn on_pointer_event(
+        &mut self,
+        ctx: &mut masonry::core::EventCtx,
+        _props: &mut masonry::core::PropertiesMut<'_>,
+        _event: &masonry::core::PointerEvent,
+    ) {
+        // TODO: how do i do this differently
+        ctx.request_focus();
+    }
 }

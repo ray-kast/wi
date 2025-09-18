@@ -2326,6 +2326,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sandbox"
+version = "0.0.0"
+dependencies = [
+ "masonry",
+ "wi-xilem",
+ "winit",
+ "xilem",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3276,14 +3286,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "wi"
+name = "wi-core"
+version = "0.1.0"
+
+[[package]]
+name = "wi-xilem"
 version = "0.1.0"
 dependencies = [
  "accesskit",
  "masonry",
  "smallvec",
  "tracing",
- "winit",
  "xilem",
 ]
 

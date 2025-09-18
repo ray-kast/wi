@@ -1,12 +1,39 @@
-[package]
-name = "wi"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/*"]
+resolver = "2"
 
-[dependencies]
+[workspace.package]
+authors = ["raykast <me@june-s.net>"]
+edition = "2024"
+repository = "https://git.raykast.club/june/wi"
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
 accesskit = "0.19"
 masonry = "0.3.0"
 smallvec = "1.15.1"
 tracing = "0.1.41"
 winit = "0.30.12"
 xilem = "0.3.0"
+
+wi-core = { path = "crates/wi-core" }
+wi-xilem = { path = "crates/wi-xilem" }
+
+# [workspace.lints.rust]
+# missing_debug_implementations = "deny"
+# missing_copy_implementations = "deny"
+# missing_docs = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+clone_on_ref_ptr = "deny"
+disallowed_methods = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+new_without_default = "allow"
+pedantic = { level = "warn", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+# cargo = { level = "warn", priority = -1 }

@@ -6,7 +6,7 @@ use xilem::{
     Pod, ViewCtx,
 };
 
-use crate::graph::{widget, Port};
+use crate::{widget, Port};
 
 pub fn graph() -> GraphView {
     GraphView {

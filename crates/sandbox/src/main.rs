@@ -1,13 +1,10 @@
 use masonry::kurbo::Point;
+use wi_xilem::graph;
 use winit::{dpi::LogicalSize, window::Window};
 use xilem::{
     view::{flex, label},
     EventLoop, WidgetView, Xilem,
 };
-
-use crate::graph::graph;
-
-mod graph;
 
 #[derive(Default)]
 struct State {}

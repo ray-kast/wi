@@ -1,0 +1,17 @@
+[package]
+name = "sandbox"
+version = "0.0.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+masonry.workspace = true
+wi-xilem.workspace = true
+winit.workspace = true
+xilem.workspace = true
+
+[lints]
+workspace = true

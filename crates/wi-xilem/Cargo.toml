@@ -1,0 +1,17 @@
+[package]
+name = "wi-xilem"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+accesskit.workspace = true
+masonry.workspace = true
+smallvec.workspace = true
+tracing.workspace = true
+xilem.workspace = true
+
+[lints]
+workspace = true
