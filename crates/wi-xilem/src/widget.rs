@@ -1,218 +1,28 @@
-use std::{collections::HashMap, mem};
-
 use masonry::{
     core::{
         keyboard::{Key, KeyState},
-        EventCtx, Ime, KeyboardEvent, Modifiers, PointerButton, PointerEvent, PointerInfo,
-        PointerState, ScrollDelta, TextEvent, Widget,
+        EventCtx, Ime, KeyboardEvent, Modifiers, PointerButton, PointerEvent, TextEvent, Widget,
     },
-    kurbo::{Circle, PathEl, Point, Rect, Size, Stroke},
+    kurbo::{Circle, PathEl, Stroke},
     peniko::{color::OpaqueColor, Fill},
 };
 use smallvec::smallvec;
-use wi_core::{GraphWidget, GraphWidgetDriver};
-use xilem::{dpi::PhysicalPosition, Affine, Vec2};
+use wi_core::GraphWidgetDriver;
+use xilem::Vec2;
 
-use crate::Port;
-
-#[derive(Debug)]
-struct Node {
-    pos: Point,
-    in_edges: Vec<Option<Port>>,
-    out_edges: Vec<Vec<Port>>,
-}
-
-impl Node {
-    fn size(&self) -> Size {
-        Size::new(
-            64.0,
-            16.0 * (self.in_edges.len().max(self.out_edges.len()) as f64),
-        )
-    }
-
-    fn rect(&self) -> Rect { Rect::from_origin_size(self.pos, self.size()) }
-
-    fn port_pos(&self, idx: usize, out: bool) -> Point {
-        let mut pos = self.pos + Vec2::new(0.0, 8.0) + Vec2::new(0.0, 16.0) * (idx as f64);
-
-        if out {
-            pos.x += self.size().width;
-        }
-
-        pos
-    }
-}
-
-#[derive(Debug)]
-struct PanDrag {
-    pointer: PointerInfo,
-    start_pos: PhysicalPosition<f64>,
-    start_pan: Vec2,
-}
-
-impl PanDrag {
-    fn new(pointer: PointerInfo, state: &PointerState, start_pan: Vec2) -> Self {
-        Self {
-            pointer,
-            start_pos: state.position,
-            start_pan,
-        }
-    }
-
-    fn update(
-        &mut self,
-        pointer: &PointerInfo,
-        state: &PointerState,
-        pan: &mut Vec2,
-        zoom: &Zoom,
-        ctx: &mut EventCtx,
-    ) {
-        if *pointer != self.pointer {
-            return;
-        }
-
-        let delta = ctx.local_position(self.start_pos) - ctx.local_position(state.position);
-
-        let prev = mem::replace(pan, self.start_pan + delta / zoom.scale());
-        if prev != *pan {
-            ctx.request_render();
-        }
-    }
-
-    fn complete(
-        this: &mut Option<Self>,
-        pointer: &PointerInfo,
-        state: &PointerState,
-        pan: &mut Vec2,
-        zoom: &Zoom,
-        ctx: &mut EventCtx,
-    ) {
-        let Some(me) = this.as_mut() else { return };
-
-        if *pointer != me.pointer {
-            return;
-        }
-
-        me.update(pointer, state, pan, zoom, ctx);
-        *this = None;
-    }
-
-    fn cancel(this: &mut Option<Self>, pointer: &PointerInfo, pan: &mut Vec2, ctx: &mut EventCtx) {
-        let Some(me) = this.as_mut() else { return };
-
-        if *pointer != me.pointer {
-            return;
-        }
-
-        let prev = mem::replace(pan, me.start_pan);
-        if prev != *pan {
-            ctx.request_render();
-        }
-
-        *this = None;
-    }
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-struct Zoom(f64);
-
-impl Zoom {
-    fn scale(&self) -> f64 { 1.5_f64.powf(self.0) }
-
-    fn update(&mut self, delta: &ScrollDelta, ctx: &mut EventCtx) {
-        let delta = match delta {
-            &ScrollDelta::PageDelta(x, y) => Vec2::new(f64::from(x) * 10.0, f64::from(y) * 10.0),
-            &ScrollDelta::LineDelta(x, y) => Vec2::new(x.into(), y.into()),
-            ScrollDelta::PixelDelta(p) => Vec2::new(p.x / 16.0, p.y / 16.0),
-        };
-
-        let primary = if !delta.y.is_finite() || delta.x.abs() > delta.y.abs() {
-            delta.x
-        } else {
-            delta.y
-        };
-
-        let delta =
-            (delta.x * delta.x + delta.y * delta.y).sqrt() * if primary < 0.0 { -1.0 } else { 1.0 };
-
-        let prev = self.0;
-        self.0 += delta;
-
-        if self.0 != prev {
-            ctx.request_render();
-        }
-    }
-}
-
-#[derive(Debug)]
-struct GraphCore {
-    nodes: HashMap<usize, Node>,
-}
-
-impl GraphWidget<usize> for GraphCore {
-    fn in_edges<'a>(&'a self, node: &usize) -> impl IntoIterator<Item = &'a usize>
-    where usize: 'a {
-        self.nodes
-            .get(node)
-            .into_iter()
-            .flat_map(|n| n.in_edges.iter())
-            .filter_map(|e| Some(&e.as_ref()?.node))
-    }
-
-    fn out_edges<'a>(&'a self, node: &usize) -> impl IntoIterator<Item = &'a usize>
-    where usize: 'a {
-        self.nodes
-            .get(node)
-            .into_iter()
-            .flat_map(|n| n.out_edges.iter())
-            .flatten()
-            .map(|p| &p.node)
-    }
-}
+mod core;
 
 #[derive(Debug)]
 pub struct Graph {
-    core: GraphCore,
+    core: core::GraphCore,
     driver: GraphWidgetDriver<usize>,
-    pan: Vec2,
-    zoom: Zoom,
-    pan_drag: Option<PanDrag>,
 }
 
 impl Graph {
     pub fn new(graph: &crate::GraphView) -> Self {
-        let mut out_edges = graph.out_edge_map();
-
-        let nodes: HashMap<_, _> = graph
-            .nodes
-            .iter()
-            .map(|(&i, n)| {
-                (i, Node {
-                    pos: n.pos,
-                    in_edges: n.in_edges.clone(),
-                    out_edges: out_edges.remove(&i).unwrap_or_else(|| unreachable!()),
-                })
-            })
-            .collect();
-
-        let pan = nodes
-            .values()
-            .fold(None, |r: Option<Rect>, n| {
-                Some(if let Some(rect) = r {
-                    rect.union(n.rect())
-                } else {
-                    n.rect()
-                })
-            })
-            .map_or(Vec2::ZERO, |r| r.center().to_vec2());
-
         Self {
-            core: GraphCore { nodes },
+            core: core::GraphCore::new(graph),
             driver: GraphWidgetDriver::new(graph.nodes.keys().copied().min().unwrap_or(usize::MAX)),
-            pan,
-            zoom: Zoom(0.0),
-            pan_drag: None,
         }
     }
 }
@@ -222,11 +32,11 @@ impl Widget for Graph {
 
     fn accepts_text_input(&self) -> bool { true }
 
-    fn register_children(&mut self, ctx: &mut masonry::core::RegisterCtx) {}
+    fn register_children(&mut self, _ctx: &mut masonry::core::RegisterCtx) {}
 
     fn layout(
         &mut self,
-        ctx: &mut masonry::core::LayoutCtx,
+        _ctx: &mut masonry::core::LayoutCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         bc: &masonry::core::BoxConstraints,
     ) -> masonry::kurbo::Size {
@@ -239,9 +49,7 @@ impl Widget for Graph {
         _props: &masonry::core::PropertiesRef<'_>,
         scene: &mut masonry::vello::Scene,
     ) {
-        let transform =
-            Affine::scale_about(self.zoom.scale(), (ctx.size().to_vec2() * 0.5).to_point())
-                * Affine::translate(ctx.size().to_vec2() * 0.5 - self.pan);
+        let transform = self.core.view_transform(ctx.size());
 
         for node in self.core.nodes.values() {
             for (i, port) in node.in_edges.iter().enumerate() {
@@ -309,11 +117,11 @@ impl Widget for Graph {
 
     fn accessibility(
         &mut self,
-        ctx: &mut masonry::core::AccessCtx,
+        _ctx: &mut masonry::core::AccessCtx,
         _props: &masonry::core::PropertiesRef<'_>,
-        node: &mut accesskit::Node,
+        _node: &mut accesskit::Node,
     ) {
-        for node in &self.core.nodes {
+        for _node in &self.core.nodes {
             // TODO
         }
     }
@@ -333,7 +141,9 @@ impl Widget for Graph {
                 modifiers,
                 is_composing: false,
                 ..
-            }) => self.driver.handle_char_input(&mut self.core, s, modifiers),
+            }) => self
+                .driver
+                .handle_char_input(&mut self.core, s, modifiers, ctx),
             TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
                 key: Key::Named(k),
@@ -342,10 +152,10 @@ impl Widget for Graph {
                 ..
             }) => self
                 .driver
-                .handle_named_keypress(&mut self.core, k, modifiers),
+                .handle_named_keypress(&mut self.core, k, modifiers, ctx),
             TextEvent::Ime(Ime::Commit(s)) => {
                 self.driver
-                    .handle_char_input(&mut self.core, s, &Modifiers::empty());
+                    .handle_char_input(&mut self.core, s, &Modifiers::empty(), ctx);
             },
             _ => return,
         }
@@ -368,40 +178,33 @@ impl Widget for Graph {
                 state,
             } => {
                 if state.buttons == PointerButton::Auxiliary.into() {
-                    self.pan_drag = Some(PanDrag::new(*pointer, state, self.pan));
+                    self.core.pan.begin_drag(*pointer, state);
                 } else {
-                    PanDrag::cancel(&mut self.pan_drag, pointer, &mut self.pan, ctx);
+                    self.core.pan.cancel_drag(pointer, ctx);
                 }
             },
             PointerEvent::Move(u) => {
-                if let Some(drag) = &mut self.pan_drag {
-                    drag.update(&u.pointer, &u.current, &mut self.pan, &self.zoom, ctx);
-                }
+                self.core
+                    .pan
+                    .update_drag(&u.pointer, &u.current, &self.core.zoom, ctx);
             },
             PointerEvent::Up {
                 button: Some(PointerButton::Auxiliary),
                 pointer,
                 state,
             } => {
-                PanDrag::complete(
-                    &mut self.pan_drag,
-                    pointer,
-                    state,
-                    &mut self.pan,
-                    &self.zoom,
-                    ctx,
-                );
+                self.core
+                    .pan
+                    .complete_drag(pointer, state, &self.core.zoom, ctx);
             },
-            PointerEvent::Cancel(i) => {
-                PanDrag::cancel(&mut self.pan_drag, i, &mut self.pan, ctx);
-            },
+            PointerEvent::Cancel(i) => self.core.pan.cancel_drag(i, ctx),
             PointerEvent::Scroll {
                 pointer: _,
                 delta,
                 state,
             } => {
                 if state.modifiers == Modifiers::CONTROL {
-                    self.zoom.update(delta, ctx);
+                    self.core.zoom.scroll(delta, ctx);
                 }
             },
             _ => (),

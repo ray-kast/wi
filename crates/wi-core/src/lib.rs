@@ -1,11 +1,15 @@
 mod keyboard;
 
 pub trait GraphWidget<N> {
+    type EventCtx<'a>;
+
     fn in_edges<'a>(&'a self, node: &N) -> impl IntoIterator<Item = &'a N>
     where N: 'a;
 
     fn out_edges<'a>(&'a self, node: &N) -> impl IntoIterator<Item = &'a N>
     where N: 'a;
+
+    fn view_node(&mut self, node: &N, ctx: &mut Self::EventCtx<'_>);
 }
 
 #[must_use]
