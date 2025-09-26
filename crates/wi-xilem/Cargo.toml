@@ -11,6 +11,7 @@ accesskit.workspace = true
 masonry.workspace = true
 smallvec.workspace = true
 tracing.workspace = true
+wi-core.workspace = true
 xilem.workspace = true
 
 [lints]

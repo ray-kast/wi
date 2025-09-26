@@ -10,6 +10,7 @@ license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 accesskit = "0.19"
+keyboard-types = "0.8.1"
 masonry = "0.3.0"
 smallvec = "1.15.1"
 tracing = "0.1.41"
@@ -32,7 +33,6 @@ clone_on_ref_ptr = "deny"
 disallowed_methods = "deny"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
-new_without_default = "allow"
 pedantic = { level = "warn", priority = -1 }
 style = { level = "deny", priority = -1 }
 suspicious = { level = "deny", priority = -1 }

@@ -3288,6 +3288,10 @@ dependencies = [
 [[package]]
 name = "wi-core"
 version = "0.1.0"
+dependencies = [
+ "keyboard-types",
+ "tracing",
+]
 
 [[package]]
 name = "wi-xilem"
@@ -3297,6 +3301,7 @@ dependencies = [
  "masonry",
  "smallvec",
  "tracing",
+ "wi-core",
  "xilem",
 ]
 

@@ -38,7 +38,10 @@ impl GraphView {
     pub fn node(&mut self, pos: Point, in_arity: usize, out_arity: usize) -> &mut Self {
         use std::collections::hash_map::Entry;
 
-        assert!(self.fresh_node != usize::MAX, "Maximum node count exceeded!");
+        assert!(
+            self.fresh_node != usize::MAX,
+            "Maximum node count exceeded!"
+        );
 
         let node = Node {
             pos,
@@ -70,6 +73,25 @@ impl GraphView {
         );
 
         self
+    }
+
+    pub fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port>>> {
+        self.nodes.iter().fold(
+            self.nodes
+                .iter()
+                .map(|(&k, v)| (k, vec![vec![]; v.out_arity]))
+                .collect(),
+            |mut h, (&node, v)| {
+                for (port, edge) in v.in_edges.iter().enumerate() {
+                    let Some(edge) = edge else { continue };
+
+                    h.get_mut(&edge.node).unwrap_or_else(|| unreachable!())[edge.port]
+                        .push(Port { node, port })
+                }
+
+                h
+            },
+        )
     }
 }
 
