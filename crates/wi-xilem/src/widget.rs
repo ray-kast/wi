@@ -1,34 +1,39 @@
 use masonry::{
     core::{
-        keyboard::{Key, KeyState},
+        keyboard::{Key, KeyState, NamedKey},
         EventCtx, Ime, KeyboardEvent, Modifiers, PointerButton, PointerEvent, TextEvent, Widget,
     },
     kurbo::{Circle, PathEl, Stroke},
     peniko::{color::OpaqueColor, Fill},
 };
 use smallvec::smallvec;
-use wi_core::GraphWidgetDriver;
+use wi_core::{Cursor, GraphWidgetDriver};
 use xilem::Vec2;
 
 mod core;
+mod drag;
 
 #[derive(Debug)]
 pub struct Graph {
     core: core::GraphCore,
-    driver: GraphWidgetDriver<usize>,
+    driver: GraphWidgetDriver<core::GraphCore>,
 }
 
 impl Graph {
     pub fn new(graph: &crate::GraphView) -> Self {
         Self {
             core: core::GraphCore::new(graph),
-            driver: GraphWidgetDriver::new(graph.nodes.keys().copied().min().unwrap_or(usize::MAX)),
+            driver: GraphWidgetDriver::new(wi_core::Cursor::Node(
+                graph.nodes.keys().copied().min().unwrap_or(usize::MAX),
+            )),
         }
     }
 }
 
 impl Widget for Graph {
     fn accepts_focus(&self) -> bool { true }
+
+    fn accepts_pointer_interaction(&self) -> bool { true }
 
     fn accepts_text_input(&self) -> bool { true }
 
@@ -58,6 +63,7 @@ impl Widget for Graph {
                 let from_pos = from.port_pos(port.port, true);
                 let to_pos = node.port_pos(i, false);
 
+                let curve_x = 0.333 * (to_pos - from_pos).length();
                 scene.stroke(
                     &Stroke::new(4.0),
                     transform,
@@ -66,8 +72,8 @@ impl Widget for Graph {
                     &[
                         PathEl::MoveTo(from_pos),
                         PathEl::CurveTo(
-                            from_pos + Vec2::new(16.0, 0.0),
-                            to_pos + Vec2::new(-16.0, 0.0),
+                            from_pos + Vec2::new(curve_x, 0.0),
+                            to_pos + Vec2::new(-curve_x, 0.0),
                             to_pos,
                         ),
                     ],
@@ -81,7 +87,10 @@ impl Widget for Graph {
             scene.stroke(
                 &Stroke::new(4.0),
                 transform,
-                if *self.driver.focus_node() == i {
+                if ctx.is_focus_target()
+                    && let &Cursor::Node(n) = self.driver.cursor()
+                    && n == i
+                {
                     OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
                 } else {
                     OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a)
@@ -94,9 +103,17 @@ impl Widget for Graph {
                 scene.fill(
                     Fill::NonZero,
                     transform,
-                    OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a),
+                    if ctx.is_focus_target()
+                        && let &Cursor::InPort(n, p) = self.driver.cursor()
+                        && n == i
+                        && p == port
+                    {
+                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+                    } else {
+                        OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
+                    },
                     None,
-                    &Circle::new(node.port_pos(port, false), 4.0),
+                    &Circle::new(node.port_pos(port, false), 6.0),
                 );
             }
 
@@ -104,11 +121,33 @@ impl Widget for Graph {
                 scene.fill(
                     Fill::NonZero,
                     transform,
-                    OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a),
+                    if ctx.is_focus_target()
+                        && let &Cursor::InPort(n, p) = self.driver.cursor()
+                        && n == i
+                        && p == port
+                    {
+                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+                    } else {
+                        OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
+                    },
                     None,
-                    &Circle::new(node.port_pos(port, true), 4.0),
+                    &Circle::new(node.port_pos(port, true), 6.0),
                 );
             }
+        }
+
+        if let &Cursor::FixedPoint(p) = self.driver.cursor() {
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                if ctx.is_focus_target() {
+                    OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+                } else {
+                    OpaqueColor::from_rgb8(0xb3, 0xb3, 0xb3)
+                },
+                None,
+                &Circle::new(p, todo!()),
+            );
         }
     }
 
@@ -146,6 +185,14 @@ impl Widget for Graph {
                 .handle_char_input(&mut self.core, s, modifiers, ctx),
             TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
+                key: Key::Named(NamedKey::Escape),
+                ..
+            }) if self.core.pan.in_drag() || self.core.in_node_drag() => {
+                self.core.pan.cancel_drag(None, ctx);
+                self.core.cancel_node_drag(None, ctx);
+            },
+            TextEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
                 key: Key::Named(k),
                 modifiers,
                 is_composing: false,
@@ -177,16 +224,32 @@ impl Widget for Graph {
                 pointer,
                 state,
             } => {
-                if state.buttons == PointerButton::Auxiliary.into() {
+                if state.buttons == PointerButton::Auxiliary.into()
+                    && state.modifiers.difference(Modifiers::CONTROL) == Modifiers::empty()
+                {
                     self.core.pan.begin_drag(*pointer, state);
                 } else {
-                    self.core.pan.cancel_drag(pointer, ctx);
+                    self.core.pan.cancel_drag(Some(pointer), ctx);
+                }
+            },
+            PointerEvent::Down {
+                button: Some(PointerButton::Primary),
+                pointer,
+                state,
+            } => {
+                if state.buttons == PointerButton::Primary.into()
+                    && state.modifiers == Modifiers::empty()
+                {
+                    self.core.begin_node_drag(*pointer, state, ctx);
+                } else {
+                    self.core.cancel_node_drag(Some(pointer), ctx);
                 }
             },
             PointerEvent::Move(u) => {
                 self.core
                     .pan
                     .update_drag(&u.pointer, &u.current, &self.core.zoom, ctx);
+                self.core.update_node_drag(&u.pointer, &u.current, ctx);
             },
             PointerEvent::Up {
                 button: Some(PointerButton::Auxiliary),
@@ -197,14 +260,29 @@ impl Widget for Graph {
                     .pan
                     .complete_drag(pointer, state, &self.core.zoom, ctx);
             },
-            PointerEvent::Cancel(i) => self.core.pan.cancel_drag(i, ctx),
+            PointerEvent::Up {
+                button: Some(PointerButton::Primary),
+                pointer,
+                state,
+            } => {
+                self.core.complete_node_drag(pointer, state, ctx);
+            },
+            PointerEvent::Cancel(i) => {
+                self.core.pan.cancel_drag(Some(i), ctx);
+                self.core.cancel_node_drag(Some(i), ctx);
+            },
             PointerEvent::Scroll {
                 pointer: _,
                 delta,
                 state,
             } => {
-                if state.modifiers == Modifiers::CONTROL {
-                    self.core.zoom.scroll(delta, ctx);
+                const M_EMPTY: Modifiers = Modifiers::empty();
+
+                match state.modifiers {
+                    Modifiers::CONTROL => self.core.zoom.scroll(delta, ctx),
+                    M_EMPTY => self.core.pan.scroll(delta, false, ctx),
+                    Modifiers::SHIFT => self.core.pan.scroll(delta, true, ctx),
+                    _ => (),
                 }
             },
             _ => (),

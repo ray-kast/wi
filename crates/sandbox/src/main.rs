@@ -14,7 +14,7 @@ fn app_logic(data: &mut State) -> impl WidgetView<State> + use<> {
         label("Graph"),
         graph().with(|g| {
             g.node(Point::new(0.0, 0.0), 0, 2)
-                .node(Point::new(100.0, 0.0), 1, 1)
+                .node(Point::new(240.0, 0.0), 1, 1)
                 .edge((0, 1), (1, 0))
         }),
     ))
