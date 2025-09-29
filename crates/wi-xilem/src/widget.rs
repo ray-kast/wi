@@ -3,15 +3,17 @@ use masonry::{
         keyboard::{Key, KeyState, NamedKey},
         EventCtx, Ime, KeyboardEvent, Modifiers, PointerButton, PointerEvent, TextEvent, Widget,
     },
-    kurbo::{Circle, PathEl, Stroke},
+    kurbo::{Circle, Stroke},
     peniko::{color::OpaqueColor, Fill},
 };
 use smallvec::smallvec;
 use wi_core::{Cursor, GraphWidgetDriver};
-use xilem::Vec2;
+
+use crate::widget::edge::Edge;
 
 mod core;
 mod drag;
+mod edge;
 
 #[derive(Debug)]
 pub struct Graph {
@@ -63,26 +65,26 @@ impl Widget for Graph {
                 let from_pos = from.port_pos(port.port, true);
                 let to_pos = node.port_pos(i, false);
 
-                let curve_x = 0.333 * (to_pos - from_pos).length();
                 scene.stroke(
                     &Stroke::new(4.0),
                     transform,
                     OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f),
                     None,
-                    &[
-                        PathEl::MoveTo(from_pos),
-                        PathEl::CurveTo(
-                            from_pos + Vec2::new(curve_x, 0.0),
-                            to_pos + Vec2::new(-curve_x, 0.0),
-                            to_pos,
-                        ),
-                    ],
+                    &Edge::new(from_pos, to_pos),
                 );
             }
         }
 
         for (&i, node) in &self.core.nodes {
             let rect = node.rect();
+
+            scene.fill(
+                Fill::NonZero,
+                transform,
+                OpaqueColor::from_rgb8(0x27, 0x27, 0x27).with_alpha(0.7),
+                None,
+                &rect,
+            );
 
             scene.stroke(
                 &Stroke::new(4.0),
@@ -146,7 +148,7 @@ impl Widget for Graph {
                     OpaqueColor::from_rgb8(0xb3, 0xb3, 0xb3)
                 },
                 None,
-                &Circle::new(p, todo!()),
+                &Circle::new(p, 6.0),
             );
         }
     }
@@ -176,6 +178,14 @@ impl Widget for Graph {
         match event {
             TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
+                key: Key::Named(NamedKey::Escape),
+                ..
+            }) if self.core.pan.in_drag() || self.core.in_node_drag() => {
+                self.core.pan.cancel_drag(None, ctx);
+                self.core.cancel_node_drag(None, ctx);
+            },
+            TextEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
                 key: Key::Character(s),
                 modifiers,
                 is_composing: false,
@@ -183,14 +193,6 @@ impl Widget for Graph {
             }) => self
                 .driver
                 .handle_char_input(&mut self.core, s, modifiers, ctx),
-            TextEvent::Keyboard(KeyboardEvent {
-                state: KeyState::Down,
-                key: Key::Named(NamedKey::Escape),
-                ..
-            }) if self.core.pan.in_drag() || self.core.in_node_drag() => {
-                self.core.pan.cancel_drag(None, ctx);
-                self.core.cancel_node_drag(None, ctx);
-            },
             TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
                 key: Key::Named(k),

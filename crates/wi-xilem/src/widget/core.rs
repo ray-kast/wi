@@ -1,11 +1,11 @@
-use std::{collections::HashMap, mem};
+use std::{collections::{BTreeMap, HashMap}, mem};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, ScrollDelta},
-    kurbo::{Point, Rect, Size},
+    kurbo::{Affine, Point, Rect, Size, Vec2},
 };
 use wi_core::{Cursor, GraphWidget};
-use xilem::{dpi::PhysicalPosition, Affine, Vec2};
+use xilem::dpi::PhysicalPosition;
 
 use crate::{widget::drag::DragHandler, Port};
 
@@ -166,7 +166,7 @@ impl Zoom {
 
 #[derive(Debug)]
 pub struct GraphCore {
-    pub nodes: HashMap<usize, Node>,
+    pub nodes: BTreeMap<usize, Node>,
     node_drag: DragHandler<(usize, Point)>,
     pub pan: Pan,
     pub zoom: Zoom,
@@ -176,7 +176,7 @@ impl GraphCore {
     pub fn new(graph: &crate::GraphView) -> Self {
         let mut out_edges = graph.out_edge_map();
 
-        let nodes: HashMap<_, _> = graph
+        let nodes: BTreeMap<_, _> = graph
             .nodes
             .iter()
             .map(|(&i, n)| {
@@ -235,9 +235,12 @@ impl GraphCore {
     ) {
         let point = self.iview_transform(ctx.size()) * ctx.local_position(state.position);
 
-        let Some(node) = self.nodes.iter().find_map(|(&k, v)| {
-            v.rect().contains(point).then_some(k)
-        }) else {
+        let Some(node) = self
+            .nodes
+            .iter()
+            .rev()
+            .find_map(|(&k, v)| v.rect().contains(point).then_some(k))
+        else {
             return;
         };
 
@@ -247,7 +250,7 @@ impl GraphCore {
 
     #[inline]
     fn node_drag_delta(
-        nodes: &mut HashMap<usize, Node>,
+        nodes: &mut BTreeMap<usize, Node>,
         zoom: &Zoom,
         ctx: &mut EventCtx,
     ) -> impl FnOnce(&(usize, Point), PhysicalPosition<f64>, PhysicalPosition<f64>) {
