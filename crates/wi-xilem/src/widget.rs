@@ -70,7 +70,7 @@ impl Widget for Graph {
                     transform,
                     OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f),
                     None,
-                    &Edge::new(from_pos, to_pos),
+                    &Edge::new(from_pos, to_pos, port.port < from.out_edges.len() / 2),
                 );
             }
         }

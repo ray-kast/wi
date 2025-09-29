@@ -61,53 +61,40 @@ impl Iterator for EdgeIter {
 pub struct Edge {
     from: Point,
     to: Point,
+    bias_upward: bool,
 }
 
 impl Edge {
     #[inline]
-    pub fn new(from: Point, to: Point) -> Self { Self { from, to } }
+    pub fn new(from: Point, to: Point, bias_upward: bool) -> Self {
+        Self {
+            from,
+            to,
+            bias_upward,
+        }
+    }
 
     #[inline]
-    pub fn arcs(&self) -> (Arc, Arc) {
-        const RADIUS: f64 = 24.0;
+    fn arcs_biased(&self, radius: f64) -> (Arc, Arc) {
         const ANGLE_OFFS: f64 = PI * -0.5;
 
-        let Self { from, to } = *self;
-
-        let radius = {
-            let delta = to - from;
-
-            (delta.x.abs() / 2.0)
-                .max(delta.y.abs() / 4.0)
-                .clamp(0.0, RADIUS)
-        };
+        let Self {
+            from,
+            to,
+            bias_upward,
+        } = *self;
         let radii = Vec2::new(radius, radius);
 
-        let sign = (to.y - from.y).signum();
+        let sign = 1.0 - 2.0 * f64::from(bias_upward);
 
         let from_ctr = from + Vec2::new(0.0, radius * sign);
-        let to_ctr;
+        let to_ctr = to + Vec2::new(0.0, radius * sign);
 
-        let from_sweep;
-        let to_start_angle;
-        let to_sweep;
+        let angle = (to.y - from.y).atan2(to.x - from.x);
+        let from_sweep =
+            angle + TAU * sign * f64::from(angle.is_sign_negative() ^ sign.is_sign_negative());
 
-        if to.x < from.x && (to.y - from.y).abs() < 2.0 * radius {
-            to_ctr = to + Vec2::new(0.0, radius * sign);
-
-            from_sweep = (to.y - from.y).atan2(to.x - from.x);
-            to_start_angle = ANGLE_OFFS * sign + from_sweep;
-            to_sweep = TAU * sign - from_sweep;
-        } else {
-            to_ctr = to + Vec2::new(0.0, radius * -sign);
-
-            let hyp = (to_ctr - from_ctr).length();
-            let hyp_angle = (to_ctr.y - from_ctr.y).atan2(to_ctr.x - from_ctr.x);
-
-            from_sweep = hyp_angle + (2.0 * radius / hyp.max(1e-7)).asin() * sign;
-            to_start_angle = ANGLE_OFFS * -sign + from_sweep;
-            to_sweep = -from_sweep;
-        }
+        let to_sweep = TAU * sign - from_sweep;
 
         (
             Arc {
@@ -120,11 +107,70 @@ impl Edge {
             Arc {
                 center: to_ctr,
                 radii,
-                start_angle: to_start_angle,
+                start_angle: ANGLE_OFFS * sign + from_sweep,
                 sweep_angle: to_sweep,
                 x_rotation: 0.0,
             },
         )
+    }
+
+    #[inline]
+    fn arcs_scurve(&self, radius: f64) -> (Arc, Arc) {
+        const ANGLE_OFFS: f64 = PI * -0.5;
+
+        let Self {
+            from,
+            to,
+            bias_upward: _,
+        } = *self;
+        let radii = Vec2::new(radius, radius);
+
+        let sign = (to.y - from.y).signum();
+
+        let from_ctr = from + Vec2::new(0.0, radius * sign);
+        let to_ctr = to + Vec2::new(0.0, radius * -sign);
+
+        let hyp = (to_ctr - from_ctr).length();
+        let hyp_angle = (to_ctr.y - from_ctr.y).atan2(to_ctr.x - from_ctr.x);
+
+        let sweep = hyp_angle + (2.0 * radius / hyp.max(1e-7)).asin() * sign;
+
+        (
+            Arc {
+                center: from_ctr,
+                radii,
+                start_angle: ANGLE_OFFS * sign,
+                sweep_angle: sweep,
+                x_rotation: 0.0,
+            },
+            Arc {
+                center: to_ctr,
+                radii,
+                start_angle: ANGLE_OFFS * -sign + sweep,
+                sweep_angle: -sweep,
+                x_rotation: 0.0,
+            },
+        )
+    }
+
+    pub fn arcs(&self) -> (Arc, Arc) {
+        const RADIUS: f64 = 24.0;
+
+        let Self { from, to, .. } = *self;
+
+        let radius = {
+            let delta = to - from;
+
+            (delta.x.abs() / 2.0)
+                .max(delta.y.abs() / 4.0)
+                .clamp(0.0, RADIUS)
+        };
+
+        if to.x < from.x && (to.y - from.y).abs() < 3.0 * radius {
+            self.arcs_biased(radius)
+        } else {
+            self.arcs_scurve(radius)
+        }
     }
 }
 
