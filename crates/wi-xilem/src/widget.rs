@@ -1,13 +1,13 @@
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        EventCtx, Ime, KeyboardEvent, Modifiers, PointerButton, PointerEvent, TextEvent, Widget,
+        EventCtx, Ime, KeyboardEvent, PointerButton, PointerEvent, TextEvent, Widget,
     },
     kurbo::{Circle, Stroke},
     peniko::{color::OpaqueColor, Fill},
 };
 use smallvec::smallvec;
-use wi_core::{Cursor, GraphWidgetDriver};
+use wi_core::{Cursor, GraphWidgetDriver, modifiers::{M_CTRL, M_NONE, M_SHIFT}};
 
 use crate::widget::edge::Edge;
 
@@ -204,7 +204,7 @@ impl Widget for Graph {
                 .handle_named_keypress(&mut self.core, k, modifiers, ctx),
             TextEvent::Ime(Ime::Commit(s)) => {
                 self.driver
-                    .handle_char_input(&mut self.core, s, &Modifiers::empty(), ctx);
+                    .handle_char_input(&mut self.core, s, &M_NONE, ctx);
             },
             _ => return,
         }
@@ -227,7 +227,7 @@ impl Widget for Graph {
                 state,
             } => {
                 if state.buttons == PointerButton::Auxiliary.into()
-                    && state.modifiers.difference(Modifiers::CONTROL) == Modifiers::empty()
+                    && state.modifiers.difference(M_CTRL) == M_NONE
                 {
                     self.core.pan.begin_drag(*pointer, state);
                 } else {
@@ -240,7 +240,7 @@ impl Widget for Graph {
                 state,
             } => {
                 if state.buttons == PointerButton::Primary.into()
-                    && state.modifiers == Modifiers::empty()
+                    && state.modifiers == M_NONE
                 {
                     self.core.begin_node_drag(*pointer, state, ctx);
                 } else {
@@ -278,12 +278,10 @@ impl Widget for Graph {
                 delta,
                 state,
             } => {
-                const M_EMPTY: Modifiers = Modifiers::empty();
-
                 match state.modifiers {
-                    Modifiers::CONTROL => self.core.zoom.scroll(delta, ctx),
-                    M_EMPTY => self.core.pan.scroll(delta, false, ctx),
-                    Modifiers::SHIFT => self.core.pan.scroll(delta, true, ctx),
+                    M_NONE => self.core.pan.scroll(delta, false, ctx),
+                    M_CTRL => self.core.zoom.scroll(delta, ctx),
+                    M_SHIFT => self.core.pan.scroll(delta, true, ctx),
                     _ => (),
                 }
             },

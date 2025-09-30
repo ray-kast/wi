@@ -2,6 +2,7 @@ use std::fmt;
 
 pub use crate::cursor::Cursor;
 
+pub mod modifiers;
 mod cursor;
 mod keyboard;
 

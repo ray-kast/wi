@@ -3,10 +3,10 @@ use tracing::{debug, instrument};
 
 #[allow(clippy::enum_glob_use)]
 use self::{Action::*, State::*};
-use crate::{GraphWidget, GraphWidgetDriver};
-
-const M_EMPTY: Modifiers = Modifiers::empty();
-const M_C: Modifiers = Modifiers::CONTROL;
+use crate::{
+    modifiers::{M_CTRL, M_NONE, M_SHIFT},
+    GraphWidget, GraphWidgetDriver,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 enum State {
@@ -46,28 +46,26 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         mods: &Modifiers,
         ctx: &mut W::EventCtx<'_>,
     ) {
-        let shift = mods.shift();
-        let mods = mods.difference(Modifiers::SHIFT);
+        let shift = mods.contains(M_SHIFT);
+        let mods = mods.difference(M_SHIFT);
 
         for char in chars.chars() {
             let (action, next) = match (char, mods, &self.keyboard.state) {
-                (c @ '0'..='9', M_EMPTY, &s @ Init)
-                    if self.keyboard.count.is_some() || c != '0' =>
-                {
+                (c @ '0'..='9', M_NONE, &s @ Init) if self.keyboard.count.is_some() || c != '0' => {
                     (PushCount(c), s)
                 },
 
-                ('g', M_EMPTY, Init) => (Nop, Go),
-                ('z', M_EMPTY, Init) => (Nop, View),
+                ('g', M_NONE, Init) => (Nop, Go),
+                ('z', M_NONE, Init) => (Nop, View),
 
-                ('o', M_EMPTY, Init) => (JumpOutput, Init),
-                ('i', M_EMPTY, Init) => (JumpInput, Init),
+                ('o', M_NONE, Init) => (JumpOutput, Init),
+                ('i', M_NONE, Init) => (JumpInput, Init),
 
-                ('o', M_C, Init) => (StackBack, Init),
-                ('i', M_C, Init) => (StackFwd, Init),
+                ('o', M_CTRL, Init) => (StackBack, Init),
+                ('i', M_CTRL, Init) => (StackFwd, Init),
 
                 // View
-                ('z', M_EMPTY, View) => (ViewFocused, Init),
+                ('z', M_NONE, View) => (ViewFocused, Init),
 
                 _ => {
                     debug!("Unhandled character input");
@@ -107,7 +105,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 | K::SymbolLock,
                 ..,
             ) => return,
-            (K::Home, M_EMPTY, Init) => (ViewFocused, Init),
+            (K::Home, M_NONE, Init) => (ViewFocused, Init),
             _ => {
                 debug!("Unhandled named keypress");
                 (Reset, Init)
