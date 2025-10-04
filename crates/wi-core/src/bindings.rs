@@ -25,28 +25,28 @@ pub enum Action {
 }
 
 use tracing::debug;
-use Action::*;
+use Action as A;
 use Key::{Char as C, Named as N};
-use NamedKey::*;
+use NamedKey as K;
 
-use crate::modifiers::*;
+use crate::modifiers::M_NONE;
 
 trie! {
     pub fn NormalAccept(k: Key) -> Option<Action> {
-        C(c @ '0'..='9', _, M_NONE) => Count(PushCount(c)) @ "" {
+        C(c @ '0'..='9', _, M_NONE) => Count(A::PushCount(c)) @ "" {
             _ => continue,
         },
 
-        C('h', _, M_NONE) | N(ArrowLeft, M_NONE) => yield Step(Step::Left),
-        C('j', _, M_NONE) | N(ArrowDown, M_NONE) => yield Step(Step::Down),
-        C('k', _, M_NONE) | N(ArrowUp, M_NONE) => yield Step(Step::Up),
-        C('l', _, M_NONE) | N(ArrowRight, M_NONE) => yield Step(Step::Right),
+        C('h', _, M_NONE) | N(K::ArrowLeft, M_NONE) => yield A::Step(Step::Left),
+        C('j', _, M_NONE) | N(K::ArrowDown, M_NONE) => yield A::Step(Step::Down),
+        C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield A::Step(Step::Up),
+        C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield A::Step(Step::Right),
 
         C('z', _, M_NONE) => View @ "z" {
-            . => yield ViewCursor,
+            . => yield A::ViewCursor,
             _ => yield,
         },
-        N(Home, M_NONE) => yield ViewCursor,
+        N(K::Home, M_NONE) => yield A::ViewCursor,
         _ => yield,
     }
 }

@@ -107,29 +107,29 @@ impl<S, A> View<S, A, ViewCtx> for GraphView {
 
     fn rebuild(
         &self,
-        prev: &Self,
-        view_state: &mut Self::ViewState,
-        ctx: &mut ViewCtx,
-        element: xilem::core::Mut<'_, Self::Element>,
+        _prev: &Self,
+        _view_state: &mut Self::ViewState,
+        _ctx: &mut ViewCtx,
+        _element: xilem::core::Mut<'_, Self::Element>,
     ) {
         todo!()
     }
 
     fn teardown(
         &self,
-        view_state: &mut Self::ViewState,
-        ctx: &mut ViewCtx,
-        element: xilem::core::Mut<'_, Self::Element>,
+        _view_state: &mut Self::ViewState,
+        _ctx: &mut ViewCtx,
+        _element: xilem::core::Mut<'_, Self::Element>,
     ) {
         todo!()
     }
 
     fn message(
         &self,
-        view_state: &mut Self::ViewState,
-        id_path: &[xilem::core::ViewId],
-        message: xilem::core::DynMessage,
-        app_state: &mut S,
+        _view_state: &mut Self::ViewState,
+        _id_path: &[xilem::core::ViewId],
+        _message: xilem::core::DynMessage,
+        _app_state: &mut S,
     ) -> xilem::core::MessageResult<A, xilem::core::DynMessage> {
         todo!()
     }

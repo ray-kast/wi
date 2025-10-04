@@ -30,7 +30,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
             },
             (c, Action::Step(s)) => {
                 let steps = c.map_or(1, NonZero::get);
-                for i in 0..steps {
+                for _ in 0..steps {
                     let (row, col) = self.cell.get_or_insert_with(|| {
                         widget.cursor_cell(self.cursor.as_ref().unwrap_or_else(|| unreachable!()))
                     });
@@ -86,7 +86,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                                     Cursor::Port(p)
                                 }
                             },
-                            (Cursor::FixedPoint(p), s) => todo!(),
+                            (Cursor::FixedPoint(_p), _s) => todo!(),
                         },
                     );
                 }

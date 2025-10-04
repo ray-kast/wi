@@ -9,7 +9,7 @@ use xilem::{
 #[derive(Default)]
 struct State {}
 
-fn app_logic(data: &mut State) -> impl WidgetView<State> + use<> {
+fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
     flex((
         graph()
             .with(|g| {
