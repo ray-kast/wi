@@ -1,11 +1,10 @@
 use std::fmt;
 
-use crate::GraphWidget;
+use crate::{GraphWidget, Port};
 
 pub enum Cursor<W: GraphWidget + ?Sized> {
     Node(W::Node),
-    InPort(W::Node, W::PortIdx),
-    OutPort(W::Node, W::PortIdx),
+    Port(Port<W>),
     FixedPoint(W::Point),
 }
 
@@ -18,8 +17,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Node(n) => f.debug_tuple("Node").field(n).finish(),
-            Self::InPort(n, p) => f.debug_tuple("InPort").field(n).field(p).finish(),
-            Self::OutPort(n, p) => f.debug_tuple("OutPort").field(n).field(p).finish(),
+            Self::Port(p) => f.debug_tuple("Port").field(p).finish(),
             Self::FixedPoint(p) => f.debug_tuple("FixedPoint").field(p).finish(),
         }
     }

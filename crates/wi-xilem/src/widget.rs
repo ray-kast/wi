@@ -9,7 +9,7 @@ use masonry::{
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
-    Cursor, GraphWidgetDriver,
+    Cursor, GraphWidgetDriver, Port, Side,
 };
 
 use self::{core::GraphCore, edge::Edge};
@@ -84,8 +84,8 @@ impl Widget for Graph {
             for (i, port) in node.in_edges.iter().enumerate() {
                 let Some(port) = port else { continue };
                 let from = &self.core.nodes[&port.node];
-                let from_pos = from.port_pos(port.port, true);
-                let to_pos = node.port_pos(i, false);
+                let from_pos = from.port_pos(port.port, Side::Out);
+                let to_pos = node.port_pos(i, Side::In);
 
                 scene.stroke(
                     &Stroke::new(4.0),
@@ -128,7 +128,7 @@ impl Widget for Graph {
                     Fill::NonZero,
                     transform,
                     if ctx.is_focus_target()
-                        && let &Cursor::InPort(n, p) = self.driver.cursor()
+                        && let &Cursor::Port(Port(Side::In, n, p)) = self.driver.cursor()
                         && n == i
                         && p == port
                     {
@@ -137,7 +137,7 @@ impl Widget for Graph {
                         OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
                     },
                     None,
-                    &Circle::new(node.port_pos(port, false), 6.0),
+                    &Circle::new(node.port_pos(port, Side::In), 6.0),
                 );
             }
 
@@ -146,7 +146,7 @@ impl Widget for Graph {
                     Fill::NonZero,
                     transform,
                     if ctx.is_focus_target()
-                        && let &Cursor::InPort(n, p) = self.driver.cursor()
+                        && let &Cursor::Port(Port(Side::Out, n, p)) = self.driver.cursor()
                         && n == i
                         && p == port
                     {
@@ -155,7 +155,7 @@ impl Widget for Graph {
                         OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
                     },
                     None,
-                    &Circle::new(node.port_pos(port, true), 6.0),
+                    &Circle::new(node.port_pos(port, Side::Out), 6.0),
                 );
             }
         }

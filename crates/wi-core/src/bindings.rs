@@ -10,8 +10,17 @@ pub enum Key {
 use keyboard_types::{Modifiers, NamedKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Step {
+    Left,
+    Down,
+    Up,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     PushCount(char),
+    Step(Step),
     ViewCursor,
 }
 
@@ -27,6 +36,12 @@ trie! {
         C(c @ '0'..='9', _, M_NONE) => Count(PushCount(c)) @ "" {
             _ => continue,
         },
+
+        C('h', _, M_NONE) | N(ArrowLeft, M_NONE) => yield Step(Step::Left),
+        C('j', _, M_NONE) | N(ArrowDown, M_NONE) => yield Step(Step::Down),
+        C('k', _, M_NONE) | N(ArrowUp, M_NONE) => yield Step(Step::Up),
+        C('l', _, M_NONE) | N(ArrowRight, M_NONE) => yield Step(Step::Right),
+
         C('z', _, M_NONE) => View @ "z" {
             . => yield ViewCursor,
             _ => yield,

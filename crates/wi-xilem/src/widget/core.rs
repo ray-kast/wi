@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Write, mem};
+use std::{collections::BTreeMap, fmt::Write, mem, num::NonZeroIsize};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, ScrollDelta, StyleProperty, WidgetMut, WidgetPod},
@@ -7,7 +7,7 @@ use masonry::{
 };
 use wi_core::{
     status::{ModeKind, Status},
-    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver,
+    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver, Side,
 };
 use xilem::dpi::PhysicalPosition;
 
@@ -31,11 +31,11 @@ impl Node {
 
     pub fn rect(&self) -> Rect { Rect::from_origin_size(self.pos, self.size()) }
 
-    pub fn port_pos(&self, idx: usize, out: bool) -> Point {
+    pub fn port_pos(&self, idx: usize, side: Side) -> Point {
         #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
         let mut pos = self.pos + Vec2::new(0.0, 20.0) + Vec2::new(0.0, 24.0) * idx as f64;
 
-        if out {
+        if matches!(side, Side::Out) {
             pos.x += self.size().width;
         }
 
@@ -361,38 +361,88 @@ impl RenderedStatus {
 }
 
 impl GraphWidget for GraphCore {
+    type Col = f64;
     type Context<'a> = EventCtx<'a>;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
+    type Row = f64;
 
-    fn in_edges<'a>(&'a self, node: &usize) -> impl IntoIterator<Item = &'a usize>
-    where usize: 'a {
-        self.nodes
-            .get(node)
-            .into_iter()
-            .flat_map(|n| n.in_edges.iter())
-            .filter_map(|e| Some(&e.as_ref()?.node))
+    fn cursor_cell(&self, cursor: &Cursor<Self>) -> (Self::Row, Self::Col) {
+        let pos = match cursor {
+            Cursor::Node(n) => self.nodes[n].rect().center(),
+            &Cursor::Port(wi_core::Port(s, n, p)) => self.nodes[&n].port_pos(p, s),
+            &Cursor::FixedPoint(p) => p,
+        };
+        (pos.y, pos.x)
     }
 
-    fn out_edges<'a>(&'a self, node: &usize) -> impl IntoIterator<Item = &'a usize>
-    where usize: 'a {
-        self.nodes
-            .get(node)
-            .into_iter()
-            .flat_map(|n| n.out_edges.iter())
-            .flatten()
-            .map(|p| &p.node)
+    fn nearest_port(
+        &self,
+        node: &Self::Node,
+        side: Side,
+        cell: (&Self::Row, &Self::Col),
+    ) -> Option<(Self::PortIdx, Self::Col)> {
+        let node = &self.nodes[node];
+        let len = match side {
+            Side::In => node.in_edges.len(),
+            Side::Out => node.out_edges.len(),
+        };
+        let pos = Point::new(*cell.1, *cell.0);
+
+        (0..len)
+            .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
+            .min_by(|(_, d), (_, e)| d.total_cmp(e))
+    }
+
+    fn step_port_by(
+        &self,
+        port: &wi_core::Port<Self>,
+        count: isize,
+    ) -> Option<(NonZeroIsize, Self::PortIdx, Self::Row)> {
+        let wi_core::Port(side, node, port) = *port;
+        let node = &self.nodes[&node];
+
+        let res = port.checked_add_signed(count)?.min(
+            match side {
+                Side::In => node.in_edges.len(),
+                Side::Out => node.out_edges.len(),
+            }
+            .checked_sub(1)?,
+        );
+
+        #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
+        NonZeroIsize::new(res.wrapping_sub(port) as isize)
+            .map(|d| (d, res, node.port_pos(res, side).y))
+    }
+
+    fn port_connection(
+        &self,
+        port: &wi_core::Port<Self>,
+    ) -> Option<(wi_core::Port<Self>, Self::Row, Self::Col)> {
+        let wi_core::Port(side, node, port) = *port;
+        let node = &self.nodes[&node];
+
+        let conn = match side {
+            Side::In => node.in_edges[port],
+            Side::Out => node.out_edges[port].first().copied(),
+        }?;
+
+        let pos = self.nodes[&conn.node].port_pos(conn.port, side.flip());
+        Some((
+            wi_core::Port(side.flip(), conn.node, conn.port),
+            pos.y,
+            pos.x,
+        ))
     }
 
     fn update_cursor(&mut self, update: CursorUpdate, cursor: &Cursor<Self>, ctx: &mut EventCtx) {
         match update {
-            CursorUpdate::Move => todo!(),
+            CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
                 self.pan.pan = match cursor {
                     Cursor::Node(n) => self.nodes[n].rect().center(),
-                    &Cursor::InPort(ref n, p) => self.nodes[n].port_pos(p, false),
-                    &Cursor::OutPort(ref n, p) => self.nodes[n].port_pos(p, true),
+                    &Cursor::Port(wi_core::Port(s, n, p)) => self.nodes[&n].port_pos(p, s),
                     Cursor::FixedPoint(p) => *p,
                 }
                 .to_vec2();
