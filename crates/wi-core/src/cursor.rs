@@ -17,10 +17,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Cursor::Node(n) => f.debug_tuple("Node").field(n).finish(),
-            Cursor::InPort(n, p) => f.debug_tuple("InPort").field(n).field(p).finish(),
-            Cursor::OutPort(n, p) => f.debug_tuple("OutPort").field(n).field(p).finish(),
-            Cursor::FixedPoint(p) => f.debug_tuple("FixedPoint").field(p).finish(),
+            Self::Node(n) => f.debug_tuple("Node").field(n).finish(),
+            Self::InPort(n, p) => f.debug_tuple("InPort").field(n).field(p).finish(),
+            Self::OutPort(n, p) => f.debug_tuple("OutPort").field(n).field(p).finish(),
+            Self::FixedPoint(p) => f.debug_tuple("FixedPoint").field(p).finish(),
         }
     }
 }

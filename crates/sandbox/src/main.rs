@@ -1,8 +1,8 @@
 use masonry::kurbo::Point;
 use wi_xilem::graph;
-use winit::{dpi::LogicalSize, window::Window};
 use xilem::{
-    view::{flex, label},
+    view::{flex, FlexExt},
+    winit::{dpi::LogicalSize, window::Window},
     EventLoop, WidgetView, Xilem,
 };
 
@@ -11,12 +11,13 @@ struct State {}
 
 fn app_logic(data: &mut State) -> impl WidgetView<State> + use<> {
     flex((
-        label("Graph"),
-        graph().with(|g| {
-            g.node(Point::new(0.0, 0.0), 0, 2)
-                .node(Point::new(240.0, 0.0), 1, 1)
-                .edge((0, 1), (1, 0))
-        }),
+        graph()
+            .with(|g| {
+                g.node(Point::new(0.0, 0.0), 0, 2)
+                    .node(Point::new(240.0, 0.0), 1, 1)
+                    .edge((0, 1), (1, 0))
+            })
+            .flex(1.0),
     ))
 }
 

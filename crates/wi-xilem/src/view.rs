@@ -75,7 +75,7 @@ impl GraphView {
         self
     }
 
-    pub fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port>>> {
+    pub(crate) fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port>>> {
         self.nodes.iter().fold(
             self.nodes
                 .iter()
@@ -86,7 +86,7 @@ impl GraphView {
                     let Some(edge) = edge else { continue };
 
                     h.get_mut(&edge.node).unwrap_or_else(|| unreachable!())[edge.port]
-                        .push(Port { node, port })
+                        .push(Port { node, port });
                 }
 
                 h

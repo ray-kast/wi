@@ -1,33 +1,40 @@
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        EventCtx, Ime, KeyboardEvent, PointerButton, PointerEvent, TextEvent, Widget,
+        EventCtx, Ime, KeyboardEvent, PointerButton, PointerEvent, TextEvent, Update, Widget,
     },
-    kurbo::{Circle, Stroke},
-    peniko::{color::OpaqueColor, Fill},
+    kurbo::{Affine, Circle, Point, Rect, Size, Stroke},
+    peniko::{color::OpaqueColor, BlendMode, Fill},
 };
 use smallvec::smallvec;
-use wi_core::{Cursor, GraphWidgetDriver, modifiers::{M_CTRL, M_NONE, M_SHIFT}};
+use wi_core::{
+    modifiers::{M_CTRL, M_NONE, M_SHIFT},
+    Cursor, GraphWidgetDriver,
+};
 
-use crate::widget::edge::Edge;
+use self::{core::GraphCore, edge::Edge};
 
 mod core;
 mod drag;
 mod edge;
 
-#[derive(Debug)]
+#[expect(missing_debug_implementations, reason = "WidgetPod doesn't impl Debug")]
 pub struct Graph {
-    core: core::GraphCore,
-    driver: GraphWidgetDriver<core::GraphCore>,
+    core: GraphCore,
+    driver: GraphWidgetDriver<GraphCore>,
+    viewport: Rect,
 }
 
 impl Graph {
     pub fn new(graph: &crate::GraphView) -> Self {
+        let driver = GraphWidgetDriver::new(wi_core::Cursor::Node(
+            graph.nodes.keys().copied().min().unwrap_or(usize::MAX),
+        ));
+
         Self {
-            core: core::GraphCore::new(graph),
-            driver: GraphWidgetDriver::new(wi_core::Cursor::Node(
-                graph.nodes.keys().copied().min().unwrap_or(usize::MAX),
-            )),
+            core: GraphCore::new(graph, &driver),
+            driver,
+            viewport: Rect::ZERO,
         }
     }
 }
@@ -39,14 +46,27 @@ impl Widget for Graph {
 
     fn accepts_text_input(&self) -> bool { true }
 
-    fn register_children(&mut self, _ctx: &mut masonry::core::RegisterCtx) {}
+    fn register_children(&mut self, ctx: &mut masonry::core::RegisterCtx) {
+        ctx.register_child(&mut self.core.statusbar);
+    }
 
     fn layout(
         &mut self,
-        _ctx: &mut masonry::core::LayoutCtx,
+        ctx: &mut masonry::core::LayoutCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         bc: &masonry::core::BoxConstraints,
     ) -> masonry::kurbo::Size {
+        let sb_size = ctx.run_layout(&mut self.core.statusbar, &bc.loosen());
+        let viewport_height = (bc.max().height - sb_size.height).max(0.0);
+
+        ctx.place_child(
+            &mut self.core.statusbar,
+            Point::new(0.0, bc.max().height - sb_size.height),
+        );
+
+        self.viewport =
+            Rect::from_origin_size(Point::ZERO, Size::new(bc.max().width, viewport_height));
+
         bc.max()
     }
 
@@ -57,6 +77,8 @@ impl Widget for Graph {
         scene: &mut masonry::vello::Scene,
     ) {
         let transform = self.core.view_transform(ctx.size());
+
+        scene.push_layer(BlendMode::default(), 1.0, Affine::IDENTITY, &self.viewport);
 
         for node in self.core.nodes.values() {
             for (i, port) in node.in_edges.iter().enumerate() {
@@ -151,6 +173,8 @@ impl Widget for Graph {
                 &Circle::new(p, 6.0),
             );
         }
+
+        scene.pop_layer();
     }
 
     // TODO: review
@@ -167,7 +191,22 @@ impl Widget for Graph {
         }
     }
 
-    fn children_ids(&self) -> smallvec::SmallVec<[masonry::core::WidgetId; 16]> { smallvec![] }
+    fn children_ids(&self) -> smallvec::SmallVec<[masonry::core::WidgetId; 16]> {
+        smallvec![self.core.statusbar.id()]
+    }
+
+    fn update(
+        &mut self,
+        ctx: &mut masonry::core::UpdateCtx,
+        _props: &mut masonry::core::PropertiesMut<'_>,
+        event: &Update,
+    ) {
+        #[expect(clippy::single_match, reason = "for maintainability")]
+        match event {
+            Update::FocusChanged(_) => ctx.request_render(),
+            _ => (),
+        }
+    }
 
     fn on_text_event(
         &mut self,
@@ -190,24 +229,35 @@ impl Widget for Graph {
                 modifiers,
                 is_composing: false,
                 ..
-            }) => self
-                .driver
-                .handle_char_input(&mut self.core, s, modifiers, ctx),
-            TextEvent::Keyboard(KeyboardEvent {
+            }) => {
+                if !self
+                    .driver
+                    .handle_char_input(&mut self.core, s, modifiers, ctx)
+                {
+                    return;
+                }
+            },
+            &TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
                 key: Key::Named(k),
                 modifiers,
                 is_composing: false,
                 ..
-            }) => self
-                .driver
-                .handle_named_keypress(&mut self.core, k, modifiers, ctx),
+            }) => {
+                if !self
+                    .driver
+                    .handle_named_keypress(&mut self.core, k, modifiers, ctx)
+                {
+                    return;
+                }
+            },
             TextEvent::Ime(Ime::Commit(s)) => {
                 self.driver
                     .handle_char_input(&mut self.core, s, &M_NONE, ctx);
             },
             _ => return,
         }
+
         ctx.set_handled();
     }
 
@@ -230,6 +280,7 @@ impl Widget for Graph {
                     && state.modifiers.difference(M_CTRL) == M_NONE
                 {
                     self.core.pan.begin_drag(*pointer, state);
+                    ctx.capture_pointer();
                 } else {
                     self.core.pan.cancel_drag(Some(pointer), ctx);
                 }
@@ -239,10 +290,9 @@ impl Widget for Graph {
                 pointer,
                 state,
             } => {
-                if state.buttons == PointerButton::Primary.into()
-                    && state.modifiers == M_NONE
-                {
+                if state.buttons == PointerButton::Primary.into() && state.modifiers == M_NONE {
                     self.core.begin_node_drag(*pointer, state, ctx);
+                    ctx.capture_pointer();
                 } else {
                     self.core.cancel_node_drag(Some(pointer), ctx);
                 }
@@ -277,15 +327,15 @@ impl Widget for Graph {
                 pointer: _,
                 delta,
                 state,
-            } => {
-                match state.modifiers {
-                    M_NONE => self.core.pan.scroll(delta, false, ctx),
-                    M_CTRL => self.core.zoom.scroll(delta, ctx),
-                    M_SHIFT => self.core.pan.scroll(delta, true, ctx),
-                    _ => (),
-                }
+            } => match state.modifiers {
+                M_NONE => self.core.pan.scroll(delta, false, &self.core.zoom, ctx),
+                M_CTRL => self.core.zoom.scroll(delta, ctx),
+                M_SHIFT => self.core.pan.scroll(delta, true, &self.core.zoom, ctx),
+                _ => return,
             },
-            _ => (),
+            _ => return,
         }
+
+        ctx.set_handled();
     }
 }

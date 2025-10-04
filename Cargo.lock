@@ -2331,7 +2331,6 @@ version = "0.0.0"
 dependencies = [
  "masonry",
  "wi-xilem",
- "winit",
  "xilem",
 ]
 

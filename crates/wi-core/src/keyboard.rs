@@ -1,150 +1,80 @@
 use keyboard_types::{Modifiers, NamedKey as K};
-use tracing::{debug, instrument};
+use tracing::instrument;
 
-#[allow(clippy::enum_glob_use)]
-use self::{Action::*, State::*};
-use crate::{
-    modifiers::{M_CTRL, M_NONE, M_SHIFT},
-    GraphWidget, GraphWidgetDriver,
-};
-
-#[derive(Debug, Default, Clone, Copy)]
-enum State {
-    #[default]
-    Init,
-    Go,
-    View,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Action {
-    JumpInput,
-    JumpOutput,
-    Nop,
-    PushCount(char),
-    Reset,
-    StackBack,
-    StackFwd,
-    ViewFocused,
-}
-
-#[derive(Debug, Default)]
-pub struct KeyboardHandler {
-    count: Option<u32>,
-    state: State,
-}
+use crate::{bindings::Key, modifiers::M_SHIFT, trie::Acceptor, GraphWidget, GraphWidgetDriver};
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
+    #[inline]
+    fn mutate_check(
+        &mut self,
+        widget: &mut W,
+        ctx: &mut W::Context<'_>,
+        f: impl FnOnce(&mut Self, &mut W, &mut W::Context<'_>) -> bool,
+    ) -> bool {
+        let pre_status = self.status();
+        let handled = f(self, widget, ctx);
+
+        if !handled {
+            self.unhandled_keypress();
+        }
+
+        if pre_status != self.status() {
+            widget.update_status(self.status(), ctx);
+        }
+
+        handled
+    }
+
     #[instrument(
         skip(self, widget, ctx),
-        fields(count = ?self.keyboard.count, state = ?self.keyboard.state),
+        fields(state = ?self.mode),
     )]
+    #[inline]
     pub fn handle_char_input(
         &mut self,
         widget: &mut W,
         chars: &str,
         mods: &Modifiers,
-        ctx: &mut W::EventCtx<'_>,
-    ) {
-        let shift = mods.contains(M_SHIFT);
-        let mods = mods.difference(M_SHIFT);
+        ctx: &mut W::Context<'_>,
+    ) -> bool {
+        self.mutate_check(widget, ctx, |me, widget, ctx| {
+            let shift = mods.contains(M_SHIFT);
+            let mods = mods.difference(M_SHIFT);
+            let mut any_handled = false;
 
-        for char in chars.chars() {
-            let (action, next) = match (char, mods, &self.keyboard.state) {
-                (c @ '0'..='9', M_NONE, &s @ Init) if self.keyboard.count.is_some() || c != '0' => {
-                    (PushCount(c), s)
-                },
+            for char in chars.chars() {
+                let handled = match me.mode.accept(Key::Char(char, shift, mods)) {
+                    (_, Some(a)) => me.process_action(widget, a, ctx),
+                    (h, None) => h,
+                };
 
-                ('g', M_NONE, Init) => (Nop, Go),
-                ('z', M_NONE, Init) => (Nop, View),
+                any_handled |= handled;
+            }
 
-                ('o', M_NONE, Init) => (JumpOutput, Init),
-                ('i', M_NONE, Init) => (JumpInput, Init),
-
-                ('o', M_CTRL, Init) => (StackBack, Init),
-                ('i', M_CTRL, Init) => (StackFwd, Init),
-
-                // View
-                ('z', M_NONE, View) => (ViewFocused, Init),
-
-                _ => {
-                    debug!("Unhandled character input");
-                    (Reset, Init)
-                },
-            };
-
-            self.process_action(widget, action, next, ctx);
-        }
+            any_handled
+        })
     }
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(count = ?self.keyboard.count, state = ?self.keyboard.state),
+        fields(state = ?self.mode),
     )]
+    #[inline]
     pub fn handle_named_keypress(
         &mut self,
         widget: &mut W,
-        key: &K,
-        mods: &Modifiers,
-        ctx: &mut W::EventCtx<'_>,
-    ) {
-        let (action, next) = match (key, *mods, &self.keyboard.state) {
-            (
-                K::Unidentified
-                | K::Alt
-                | K::AltGraph
-                | K::CapsLock
-                | K::Control
-                | K::Fn
-                | K::FnLock
-                | K::Meta
-                | K::NumLock
-                | K::ScrollLock
-                | K::Shift
-                | K::Symbol
-                | K::SymbolLock,
-                ..,
-            ) => return,
-            (K::Home, M_NONE, Init) => (ViewFocused, Init),
-            _ => {
-                debug!("Unhandled named keypress");
-                (Reset, Init)
-            },
-        };
-
-        self.process_action(widget, action, next, ctx);
+        key: K,
+        mods: Modifiers,
+        ctx: &mut W::Context<'_>,
+    ) -> bool {
+        self.mutate_check(widget, ctx, |me, widget, ctx| {
+            match me.mode.accept(Key::Named(key, mods)) {
+                (_, Some(a)) => me.process_action(widget, a, ctx),
+                (h, None) => h,
+            }
+        })
     }
 
     #[inline]
-    #[instrument(
-        skip(self, widget, ctx),
-        fields(count = ?self.keyboard.count, state = ?self.keyboard.state),
-    )]
-    fn process_action(
-        &mut self,
-        widget: &mut W,
-        action: Action,
-        next: State,
-        ctx: &mut W::EventCtx<'_>,
-    ) {
-        debug!("Processing action");
-        let count = match (action, self.keyboard.count) {
-            (JumpInput, _) => None,
-            (JumpOutput, _) => None,
-            (Nop, c) => c,
-            (PushCount(c), None) => Some(u32::from(c) - u32::from('0')),
-            (PushCount(c), Some(n)) => Some(n * 10 + (u32::from(c) - u32::from('0'))),
-            (Reset, _) => None,
-            (StackBack, _) => None,
-            (StackFwd, _) => None,
-            (ViewFocused, None) => {
-                widget.view_cursor(&self.cursor, ctx);
-                None
-            },
-            (_, Some(_)) => None,
-        };
-
-        self.keyboard.count = count;
-        self.keyboard.state = next;
-    }
+    fn unhandled_keypress(&mut self) { self.count = None; }
 }

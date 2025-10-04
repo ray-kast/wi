@@ -1,10 +1,14 @@
-use std::{collections::{BTreeMap, HashMap}, mem};
+use std::{collections::BTreeMap, fmt::Write, mem};
 
 use masonry::{
-    core::{EventCtx, PointerInfo, PointerState, ScrollDelta},
+    core::{EventCtx, PointerInfo, PointerState, ScrollDelta, StyleProperty, WidgetMut, WidgetPod},
     kurbo::{Affine, Point, Rect, Size, Vec2},
+    widgets::{Flex, Label},
 };
-use wi_core::{Cursor, GraphWidget};
+use wi_core::{
+    status::{ModeKind, Status},
+    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver,
+};
 use xilem::dpi::PhysicalPosition;
 
 use crate::{widget::drag::DragHandler, Port};
@@ -18,7 +22,7 @@ pub struct Node {
 
 impl Node {
     fn size(&self) -> Size {
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
         Size::new(
             128.0,
             16.0 + 24.0 * (self.in_edges.len().max(self.out_edges.len()) as f64),
@@ -28,7 +32,7 @@ impl Node {
     pub fn rect(&self) -> Rect { Rect::from_origin_size(self.pos, self.size()) }
 
     pub fn port_pos(&self, idx: usize, out: bool) -> Point {
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
         let mut pos = self.pos + Vec2::new(0.0, 20.0) + Vec2::new(0.0, 24.0) * idx as f64;
 
         if out {
@@ -121,8 +125,8 @@ impl Pan {
         });
     }
 
-    pub fn scroll(&mut self, delta: &ScrollDelta, transp: bool, ctx: &mut EventCtx) {
-        let delta = scroll_pixels(delta);
+    pub fn scroll(&mut self, delta: &ScrollDelta, transp: bool, zoom: &Zoom, ctx: &mut EventCtx) {
+        let delta = scroll_pixels(delta) / zoom.scale();
         let delta = if transp {
             Vec2::new(delta.y, delta.x)
         } else {
@@ -157,23 +161,23 @@ impl Zoom {
         let prev = self.0;
         self.0 += delta;
 
-        #[allow(clippy::float_cmp)]
+        #[expect(clippy::float_cmp, reason = "Imprecision fails safe here")]
         if self.0 != prev {
             ctx.request_render();
         }
     }
 }
 
-#[derive(Debug)]
 pub struct GraphCore {
     pub nodes: BTreeMap<usize, Node>,
     node_drag: DragHandler<(usize, Point)>,
     pub pan: Pan,
     pub zoom: Zoom,
+    pub statusbar: WidgetPod<Flex>,
 }
 
 impl GraphCore {
-    pub fn new(graph: &crate::GraphView) -> Self {
+    pub fn new(graph: &crate::GraphView, driver: &GraphWidgetDriver<Self>) -> Self {
         let mut out_edges = graph.out_edge_map();
 
         let nodes: BTreeMap<_, _> = graph
@@ -207,6 +211,7 @@ impl GraphCore {
                 drag: DragHandler::new(),
             },
             zoom: Zoom(0.0),
+            statusbar: RenderedStatus::new(driver.status()).create(),
         }
     }
 
@@ -305,8 +310,58 @@ impl GraphCore {
     }
 }
 
+struct RenderedStatus {
+    mode: &'static str,
+    chord: String,
+}
+
+impl RenderedStatus {
+    fn new(status: Status) -> Self {
+        let Status {
+            count,
+            mode,
+            pending_op,
+        } = status;
+        let mut chord = String::new();
+
+        if let Some(count) = count {
+            write!(chord, "{count}").unwrap();
+        }
+
+        write!(chord, "{pending_op}").unwrap();
+
+        let mode = match mode {
+            ModeKind::Normal => "Normal",
+        };
+
+        Self { mode, chord }
+    }
+
+    fn create(self) -> WidgetPod<Flex> {
+        let Self { mode, chord } = self;
+
+        WidgetPod::new(
+            Flex::row()
+                .gap(8.0)
+                .with_spacer(4.0)
+                .with_child(Label::new(mode).with_style(StyleProperty::FontSize(18.0)))
+                .with_flex_spacer(1.0)
+                .with_child(Label::new(chord).with_style(StyleProperty::FontSize(18.0)))
+                .with_spacer(4.0),
+        )
+    }
+
+    fn update(self, mut bar: WidgetMut<Flex>) {
+        let Self { mode, chord } = self;
+
+        Label::set_text(&mut Flex::child_mut(&mut bar, 1).unwrap().downcast(), mode);
+
+        Label::set_text(&mut Flex::child_mut(&mut bar, 3).unwrap().downcast(), chord);
+    }
+}
+
 impl GraphWidget for GraphCore {
-    type EventCtx<'a> = EventCtx<'a>;
+    type Context<'a> = EventCtx<'a>;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
@@ -330,15 +385,25 @@ impl GraphWidget for GraphCore {
             .map(|p| &p.node)
     }
 
-    fn view_cursor(&mut self, cursor: &Cursor<Self>, ctx: &mut EventCtx) {
-        self.pan.pan = match cursor {
-            Cursor::Node(n) => self.nodes[n].rect().center(),
-            &Cursor::InPort(ref n, p) => self.nodes[n].port_pos(p, false),
-            &Cursor::OutPort(ref n, p) => self.nodes[n].port_pos(p, true),
-            Cursor::FixedPoint(p) => *p,
+    fn update_cursor(&mut self, update: CursorUpdate, cursor: &Cursor<Self>, ctx: &mut EventCtx) {
+        match update {
+            CursorUpdate::Move => todo!(),
+            CursorUpdate::CenterInView => {
+                self.pan.pan = match cursor {
+                    Cursor::Node(n) => self.nodes[n].rect().center(),
+                    &Cursor::InPort(ref n, p) => self.nodes[n].port_pos(p, false),
+                    &Cursor::OutPort(ref n, p) => self.nodes[n].port_pos(p, true),
+                    Cursor::FixedPoint(p) => *p,
+                }
+                .to_vec2();
+                self.zoom.0 = 0.0;
+            },
         }
-        .to_vec2();
-        self.zoom.0 = 0.0;
         ctx.request_render();
+    }
+
+    fn update_status(&mut self, status: Status, ctx: &mut EventCtx) {
+        let rendered = RenderedStatus::new(status);
+        ctx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
     }
 }
