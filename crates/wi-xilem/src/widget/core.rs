@@ -225,6 +225,21 @@ impl GraphCore {
         Affine::translate(-self.pan.translation(size))
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
     }
+
+    pub fn cell_point(&self, row: Anchor<f64>, col: Anchor<f64>) -> Point {
+        Point::new(
+            col.1
+                + col
+                    .0
+                    .and_then(|n| self.nodes.get(&n))
+                    .map_or(0.0, |n| n.pos.x),
+            row.1
+                + row
+                    .0
+                    .and_then(|n| self.nodes.get(&n))
+                    .map_or(0.0, |n| n.pos.y),
+        )
+    }
 }
 
 impl GraphCore {
@@ -360,60 +375,77 @@ impl RenderedStatus {
     }
 }
 
+// Coordinate and optional node anchor point
+#[derive(Debug, Clone, Copy)]
+pub struct Anchor<T>(Option<usize>, T);
+
 impl GraphWidget for GraphCore {
-    type Col = f64;
+    type Col = Anchor<f64>;
     type Context<'a> = EventCtx<'a>;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
-    type Row = f64;
+    type Row = Anchor<f64>;
 
     fn cursor_cell(&self, cursor: &Cursor<Self>) -> (Self::Row, Self::Col) {
-        let pos = match cursor {
-            Cursor::Node(n) => self.nodes[n].rect().center(),
-            &Cursor::Port(wi_core::Port(s, n, p)) => self.nodes[&n].port_pos(p, s),
-            &Cursor::FixedPoint(p) => p,
+        let (node, pos) = match *cursor {
+            Cursor::Node(n) => {
+                let node = &self.nodes[&n];
+                (Some(n), node.rect().size().to_vec2() * 0.5)
+            },
+            Cursor::Port(wi_core::Port(s, n, p)) => {
+                let node = &self.nodes[&n];
+                (Some(n), node.port_pos(p, s) - node.pos)
+            },
+            Cursor::FixedPoint(p) => (None, p.to_vec2()),
         };
-        (pos.y, pos.x)
+        (Anchor(node, pos.y), Anchor(node, pos.x))
     }
 
     fn nearest_port(
         &self,
-        node: &Self::Node,
+        n: &Self::Node,
         side: Side,
         cell: (&Self::Row, &Self::Col),
     ) -> Option<(Self::PortIdx, Self::Col)> {
-        let node = &self.nodes[node];
+        let node = &self.nodes[n];
         let len = match side {
             Side::In => node.in_edges.len(),
             Side::Out => node.out_edges.len(),
         };
-        let pos = Point::new(*cell.1, *cell.0);
+        let pos = self.cell_point(*cell.0, *cell.1);
 
-        (0..len)
+        let (port, _) = (0..len)
             .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
-            .min_by(|(_, d), (_, e)| d.total_cmp(e))
+            .min_by(|(_, d), (_, e)| d.total_cmp(e))?;
+
+        Some((
+            port,
+            Anchor(Some(*n), node.port_pos(port, side).x - node.pos.x),
+        ))
     }
 
     fn step_port_by(
         &self,
         port: &wi_core::Port<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortIdx, Self::Row)> {
-        let wi_core::Port(side, node, port) = *port;
-        let node = &self.nodes[&node];
+    ) -> (Option<(NonZeroIsize, Self::PortIdx)>, Self::Row) {
+        let wi_core::Port(side, n, port) = *port;
+        let node = &self.nodes[&n];
 
-        let res = port.checked_add_signed(count)?.min(
+        let res = port.saturating_add_signed(count).min(
             match side {
                 Side::In => node.in_edges.len(),
                 Side::Out => node.out_edges.len(),
             }
-            .checked_sub(1)?,
+            .saturating_sub(1),
         );
 
         #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new(res.wrapping_sub(port) as isize)
-            .map(|d| (d, res, node.port_pos(res, side).y))
+        (
+            NonZeroIsize::new(res.wrapping_sub(port) as isize).map(|d| (d, res)),
+            Anchor(Some(n), node.port_pos(res, side).y - node.pos.y),
+        )
     }
 
     fn port_connection(
@@ -428,11 +460,12 @@ impl GraphWidget for GraphCore {
             Side::Out => node.out_edges[port].first().copied(),
         }?;
 
-        let pos = self.nodes[&conn.node].port_pos(conn.port, side.flip());
+        let node = &self.nodes[&conn.node];
+        let pos = node.port_pos(conn.port, side.flip()) - node.pos;
         Some((
             wi_core::Port(side.flip(), conn.node, conn.port),
-            pos.y,
-            pos.x,
+            Anchor(Some(conn.node), pos.y),
+            Anchor(Some(conn.node), pos.x),
         ))
     }
 

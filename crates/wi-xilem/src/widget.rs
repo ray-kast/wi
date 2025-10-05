@@ -160,6 +160,18 @@ impl Widget for Graph {
             }
         }
 
+        #[cfg(debug_assertions)]
+        if let Some((row, col)) = self.driver.cursor_cell() {
+            let p = self.core.cell_point(*row, *col);
+            scene.stroke(
+                &Stroke::new(2.0),
+                transform,
+                OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
+                None,
+                &Circle::new(p, 12.0),
+            );
+        }
+
         if let &Cursor::FixedPoint(p) = self.driver.cursor() {
             scene.fill(
                 Fill::NonZero,

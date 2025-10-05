@@ -13,7 +13,7 @@ fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
     flex((
         graph()
             .with(|g| {
-                g.node(Point::new(0.0, 0.0), 0, 2)
+                g.node(Point::new(0.0, 0.0), 3, 2)
                     .node(Point::new(240.0, 0.0), 1, 1)
                     .edge((0, 1), (1, 0))
             })

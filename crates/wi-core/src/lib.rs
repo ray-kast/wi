@@ -72,7 +72,7 @@ pub trait GraphWidget {
         &self,
         port: &Port<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortIdx, Self::Row)>;
+    ) -> (Option<(NonZeroIsize, Self::PortIdx)>, Self::Row);
 
     fn port_connection(&self, port: &Port<Self>) -> Option<(Port<Self>, Self::Row, Self::Col)>;
 
@@ -130,4 +130,10 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[inline]
     pub fn cursor(&self) -> &Cursor<W> { self.cursor.as_ref().unwrap_or_else(|| unreachable!()) }
+
+    #[inline]
+    pub fn cursor_cell(&self) -> Option<(&W::Row, &W::Col)> {
+        let (row, col) = self.cell.as_ref()?;
+        Some((row, col))
+    }
 }
