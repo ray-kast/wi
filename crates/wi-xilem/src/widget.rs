@@ -9,7 +9,7 @@ use masonry::{
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
-    Cursor, GraphWidgetDriver, Port, Side,
+    Cursor, GraphWidgetDriver, Side, SidedPort,
 };
 
 use self::{core::GraphCore, edge::Edge};
@@ -80,19 +80,30 @@ impl Widget for Graph {
 
         scene.push_layer(BlendMode::default(), 1.0, Affine::IDENTITY, &self.viewport);
 
-        for node in self.core.nodes.values() {
+        for (&node_id, node) in &self.core.nodes {
             for (i, port) in node.in_edges.iter().enumerate() {
                 let Some(port) = port else { continue };
-                let from = &self.core.nodes[&port.node];
-                let from_pos = from.port_pos(port.port, Side::Out);
+                let from = &self.core.nodes[&port.0];
+                let from_pos = from.port_pos(port.1, Side::Out);
                 let to_pos = node.port_pos(i, Side::In);
 
                 scene.stroke(
                     &Stroke::new(4.0),
                     transform,
-                    OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f),
+                    // TODO: broken
+                    if ctx.is_focus_target()
+                        && let &Cursor::Edge(SidedPort(s, n, p), e) = self.driver.cursor()
+                        && match s {
+                            Side::In => n == node_id && p == i,
+                            Side::Out => n == port.0 && p == port.1,
+                        }
+                    {
+                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+                    } else {
+                        OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f)
+                    },
                     None,
-                    &Edge::new(from_pos, to_pos, port.port < from.out_edges.len() / 2),
+                    &Edge::new(from_pos, to_pos, port.1 < from.out_edges.len() / 2),
                 );
             }
         }
@@ -128,7 +139,7 @@ impl Widget for Graph {
                     Fill::NonZero,
                     transform,
                     if ctx.is_focus_target()
-                        && let &Cursor::Port(Port(Side::In, n, p)) = self.driver.cursor()
+                        && let &Cursor::Port(SidedPort(Side::In, n, p)) = self.driver.cursor()
                         && n == i
                         && p == port
                     {
@@ -146,7 +157,7 @@ impl Widget for Graph {
                     Fill::NonZero,
                     transform,
                     if ctx.is_focus_target()
-                        && let &Cursor::Port(Port(Side::Out, n, p)) = self.driver.cursor()
+                        && let &Cursor::Port(SidedPort(Side::Out, n, p)) = self.driver.cursor()
                         && n == i
                         && p == port
                     {

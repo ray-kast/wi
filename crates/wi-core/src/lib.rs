@@ -31,17 +31,72 @@ impl Side {
     }
 }
 
-pub struct Port<W: GraphWidget + ?Sized>(pub Side, pub W::Node, pub W::PortIdx);
+pub struct Port<W: GraphWidget + ?Sized>(pub W::Node, pub W::PortIdx);
+
+impl<W: GraphWidget + ?Sized> Clone for Port<W>
+where
+    W::Node: Clone,
+    W::PortIdx: Clone,
+{
+    fn clone(&self) -> Self { Self(self.0.clone(), self.1.clone()) }
+
+    fn clone_from(&mut self, source: &Self) {
+        let Self(n, p) = self;
+        n.clone_from(&source.0);
+        p.clone_from(&source.1);
+    }
+}
+
+impl<W: GraphWidget + ?Sized> Copy for Port<W>
+where
+    W::Node: Copy,
+    W::PortIdx: Copy,
+{
+}
 
 impl<W: GraphWidget + ?Sized> fmt::Debug for Port<W>
 where
     W::Node: fmt::Debug,
     W::PortIdx: fmt::Debug,
-    W::Point: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(node, port) = self;
+        f.debug_tuple("Port").field(node).field(port).finish()
+    }
+}
+
+pub struct SidedPort<W: GraphWidget + ?Sized>(pub Side, pub W::Node, pub W::PortIdx);
+
+impl<W: GraphWidget + ?Sized> Clone for SidedPort<W>
+where
+    W::Node: Clone,
+    W::PortIdx: Clone,
+{
+    fn clone(&self) -> Self { Self(self.0, self.1.clone(), self.2.clone()) }
+
+    fn clone_from(&mut self, source: &Self) {
+        let Self(s, n, p) = self;
+        *s = source.0;
+        n.clone_from(&source.1);
+        p.clone_from(&source.2);
+    }
+}
+
+impl<W: GraphWidget + ?Sized> Copy for SidedPort<W>
+where
+    W::Node: Copy,
+    W::PortIdx: Copy,
+{
+}
+
+impl<W: GraphWidget + ?Sized> fmt::Debug for SidedPort<W>
+where
+    W::Node: fmt::Debug,
+    W::PortIdx: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(side, node, port) = self;
-        f.debug_tuple("Port")
+        f.debug_tuple("SidedPort")
             .field(side)
             .field(node)
             .field(port)
@@ -58,7 +113,7 @@ pub enum CursorUpdate {
 pub trait GraphWidget {
     type Node;
     type PortIdx;
-    type OutEdgeIdx;
+    type EdgeIdx;
     type Row;
     type Col;
     type Point;
@@ -71,15 +126,28 @@ pub trait GraphWidget {
         node: &Self::Node,
         side: Side,
         cell: (&Self::Row, &Self::Col),
-    ) -> Option<(Self::PortIdx, Self::Col)>;
+    ) -> Option<Self::PortIdx>;
 
     fn step_port_by(
         &self,
-        port: &Port<Self>,
+        port: &SidedPort<Self>,
         count: isize,
-    ) -> (Option<(NonZeroIsize, Self::PortIdx)>, Self::Row);
+    ) -> Option<(NonZeroIsize, Self::PortIdx)>;
 
-    fn port_connection(&self, port: &Port<Self>) -> Option<(Port<Self>, Self::Row, Self::Col)>;
+    fn nearest_edge(
+        &self,
+        port: &SidedPort<Self>,
+        cell: (&Self::Row, &Self::Col),
+    ) -> Option<Self::EdgeIdx>;
+
+    fn step_edge_by(
+        &self,
+        port: &SidedPort<Self>,
+        edge: &Self::EdgeIdx,
+        count: isize,
+    ) -> Option<(NonZeroIsize, Self::EdgeIdx)>;
+
+    fn edge_port(&self, port: &SidedPort<Self>, edge: &Self::EdgeIdx, side: Side) -> Port<Self>;
 
     fn update_cursor(
         &mut self,
@@ -103,7 +171,7 @@ impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
 where
     W::Node: fmt::Debug,
     W::PortIdx: fmt::Debug,
-    W::OutEdgeIdx: fmt::Debug,
+    W::EdgeIdx: fmt::Debug,
     W::Row: fmt::Debug,
     W::Col: fmt::Debug,
     W::Point: fmt::Debug,

@@ -39,6 +39,13 @@ trie! {
         C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
         C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
 
+        C('d', _, M_NONE) => Delete @ "d" {
+            _ => yield,
+        },
+        C('g', _, M_NONE) => Go @ "g" {
+            _ => yield,
+        },
+
         C('z', _, M_NONE) => View @ "z" {
             . => yield ViewCursor,
             _ => yield,
