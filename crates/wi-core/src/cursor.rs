@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{action::prelude::*, bindings::Step, CursorUpdate, GraphWidget, Port, Side, SidedPort};
+use crate::{CursorUpdate, GraphWidget, Port, PreserveCell, Side, SidedPort, action::prelude::*, bindings::Step};
 
 pub enum Cursor<W: GraphWidget + ?Sized> {
     Node(W::Node),
@@ -36,14 +36,49 @@ pub mod actions {
     pub struct ViewCursor;
 }
 
+#[inline]
+fn horiz_is_right(step: Step) -> bool {
+    match step {
+        Step::Left => false,
+        Step::Right => true,
+        _ => unreachable!(),
+    }
+}
+
+#[inline]
+fn vert_is_down(step: Step) -> bool {
+    match step {
+        Step::Up => false,
+        Step::Down => true,
+        _ => unreachable!(),
+    }
+}
+
+#[inline]
+fn horiz_side(step: Step) -> Side {
+    if horiz_is_right(step) {
+        Side::Out
+    } else {
+        Side::In
+    }
+}
+
+#[inline]
+fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
+    let steps_abs = isize::try_from(steps).unwrap_or(isize::MAX);
+    let steps = if pos { steps_abs } else { -steps_abs };
+    let dec = u32::try_from(steps_abs).unwrap_or_else(|_| unreachable!());
+    (steps, dec)
+}
+
 impl EditorAction for actions::StepCursor {
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(step) = self;
         let mut steps = count.map_or(1, NonZero::get);
         while steps > 0 {
-            let (row, col) = cx.driver.cell.get_or_insert_with(|| {
+            let (anchor, row, col) = cx.driver.cell.get_or_insert_with(|| {
                 cx.widget
-                    .cursor_cell(cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()))
+                    .cursor_cell(cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()), PreserveCell::Overwrite)
             });
 
             let dec;
@@ -52,12 +87,8 @@ impl EditorAction for actions::StepCursor {
                 step,
             ) {
                 (Cursor::Node(n), s @ (Step::Left | Step::Right)) => {
-                    let side = if matches!(s, Step::Right) {
-                        Side::Out
-                    } else {
-                        Side::In
-                    };
-                    if let Some(p) = cx.widget.nearest_port(&n, side, (row, col)) {
+                    let side = horiz_side(s);
+                    if let Some(p) = cx.widget.nearest_port(&n, side, (anchor, row, col)) {
                         dec = 1;
                         Cursor::Port(SidedPort(side, n, p))
                     } else {
@@ -70,13 +101,9 @@ impl EditorAction for actions::StepCursor {
                     c
                 },
                 (Cursor::Port(p), s @ (Step::Left | Step::Right)) => {
-                    let side = if matches!(s, Step::Right) {
-                        Side::Out
-                    } else {
-                        Side::In
-                    };
+                    let side = horiz_side(s);
                     if side == p.0 {
-                        if let Some(e) = cx.widget.nearest_edge(&p, (row, col)) {
+                        if let Some(e) = cx.widget.nearest_edge(&p, (anchor, row, col)) {
                             dec = 1;
                             Cursor::Edge(p, e)
                         } else {
@@ -90,38 +117,24 @@ impl EditorAction for actions::StepCursor {
                     }
                 },
                 (Cursor::Port(p), s @ (Step::Down | Step::Up)) => {
-                    let steps = isize::try_from(steps).unwrap_or(isize::MAX);
-                    let step = if matches!(s, Step::Down) {
-                        steps
-                    } else {
-                        -steps
-                    };
-                    dec = u32::try_from(steps).unwrap_or_else(|_| unreachable!());
-                    if let Some((_, i)) = cx.widget.step_port_by(&p, step) {
+                    let count;
+                    (count, dec) = signed_steps(vert_is_down(s), steps);
+                    if let Some((_, i)) = cx.widget.step_port_by(&p, count) {
                         Cursor::Port(SidedPort(p.0, p.1, i))
                     } else {
                         Cursor::Port(p)
                     }
                 },
                 (Cursor::Edge(p, e), s @ (Step::Left | Step::Right)) => {
-                    let side = if matches!(s, Step::Right) {
-                        Side::Out
-                    } else {
-                        Side::In
-                    };
+                    let side = horiz_side(s);
                     let Port(node, port) = cx.widget.edge_port(&p, &e, side);
                     dec = 1;
                     Cursor::Port(SidedPort(side.flip(), node, port))
                 },
                 (Cursor::Edge(p, e), s @ (Step::Down | Step::Up)) => {
-                    let steps = isize::try_from(steps).unwrap_or(isize::MAX);
-                    let step = if matches!(s, Step::Down) {
-                        steps
-                    } else {
-                        -steps
-                    };
-                    dec = u32::try_from(steps).unwrap_or_else(|_| unreachable!());
-                    if let Some((_, e)) = cx.widget.step_edge_by(&p, &e, step) {
+                    let count;
+                    (count, dec) = signed_steps(vert_is_down(s), steps);
+                    if let Some((_, e)) = cx.widget.step_edge_by(&p, &e, count) {
                         Cursor::Edge(p, e)
                     } else {
                         Cursor::Edge(p, e)
@@ -131,11 +144,10 @@ impl EditorAction for actions::StepCursor {
             };
 
             steps = steps.checked_sub(dec).unwrap_or_else(|| unreachable!());
-            let (row2, col2) = cx.widget.cursor_cell(&cursor);
-            match step {
-                Step::Left | Step::Right => *col = col2,
-                Step::Down | Step::Up => *row = row2,
-            }
+            (*anchor, *row, *col) = cx.widget.cursor_cell(&cursor, match step {
+                Step::Left | Step::Right => PreserveCell::Row(anchor, row),
+                Step::Down | Step::Up => PreserveCell::Col(anchor, col),
+            });
             cx.driver.cursor = Some(cursor);
         }
         cx.widget

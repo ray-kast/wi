@@ -172,8 +172,8 @@ impl Widget for Graph {
         }
 
         #[cfg(debug_assertions)]
-        if let Some((row, col)) = self.driver.cursor_cell() {
-            let p = self.core.cell_point(*row, *col);
+        if let Some(cell) = self.driver.cursor_cell() {
+            let p = self.core.cell_point(cell);
             scene.stroke(
                 &Stroke::new(2.0),
                 transform,

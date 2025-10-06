@@ -7,7 +7,7 @@ use masonry::{
 };
 use wi_core::{
     status::{ModeKind, Status},
-    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver, Port, Side, SidedPort,
+    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver, Port, PreserveCell, Side, SidedPort,
 };
 use xilem::dpi::PhysicalPosition;
 
@@ -181,6 +181,13 @@ pub struct GraphCore {
     pub statusbar: WidgetPod<Flex>,
 }
 
+fn edge_midpoint(from_node: &Node, from_port: usize, to_node: &Node, to_port: usize) -> Point {
+    ((from_node.port_pos(from_port, Side::Out).to_vec2()
+        + to_node.port_pos(to_port, Side::In).to_vec2())
+        * 0.5)
+        .to_point()
+}
+
 impl GraphCore {
     pub fn new(graph: &crate::GraphView, driver: &GraphWidgetDriver<Self>) -> Self {
         let mut out_edges = graph.out_edge_map();
@@ -240,8 +247,29 @@ impl GraphCore {
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
     }
 
-    pub fn cell_point(&self, row: Anchor<f64>, col: Anchor<f64>) -> Point {
-        Point::new(col.1 + col.0.get(self).x, row.1 + row.0.get(self).y)
+    #[inline]
+    pub fn cell_point(&self, cell: (&Anchor, &f64, &f64)) -> Point {
+        let (anchor, &row, &col) = cell;
+        anchor.get(self) + Vec2::new(col, row)
+    }
+
+    fn edge_midpoint(&self, port: SidedPort<Self>, edge: usize) -> Point {
+        let SidedPort(s, n, p) = port;
+        let node = &self.nodes[&n];
+
+        let (from_node, from_port, to_node, to_port) = match s {
+            Side::In => {
+                assert!(edge == 0);
+                let Port(n2, p2) = node.in_edges[p].unwrap();
+                (&self.nodes[&n2], p2, node, p)
+            },
+            Side::Out => {
+                let Port(n2, p2) = node.out_edges[p][edge];
+                (node, p, &self.nodes[&n2], p2)
+            },
+        };
+
+        edge_midpoint(from_node, from_port, to_node, to_port)
     }
 }
 
@@ -378,86 +406,75 @@ impl RenderedStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum AnchorPoint {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Anchor {
     Fixed,
     Node(usize),
     Edge(SidedPort<GraphCore>, usize),
 }
 
-impl AnchorPoint {
+impl Anchor {
     fn get(self, graph: &GraphCore) -> Point {
         match self {
             Self::Fixed => Point::ZERO,
             Self::Node(n) => graph.nodes[&n].pos,
-            Self::Edge(SidedPort(s, n, p), i) => {
-                let node = &graph.nodes[&n];
-
-                let (from_node, from_port, to_node, to_port) = match s {
-                    Side::In => {
-                        assert!(i == 0);
-                        let Port(n2, p2) = node.in_edges[p].unwrap();
-                        (&graph.nodes[&n2], p2, node, p)
-                    },
-                    Side::Out => {
-                        let Port(n2, p2) = node.out_edges[p][i];
-                        (node, p, &graph.nodes[&n2], p2)
-                    },
-                };
-
-                ((from_node.port_pos(from_port, Side::Out).to_vec2()
-                    + to_node.port_pos(to_port, Side::In).to_vec2())
-                    * 0.5)
-                    .to_point()
-            },
+            Self::Edge(p, i) => graph.edge_midpoint(p, i),
         }
     }
 }
 
-// Coordinate and optional node anchor point
-#[derive(Debug, Clone, Copy)]
-pub struct Anchor<T>(AnchorPoint, T);
-
 impl GraphWidget for GraphCore {
-    type Col = Anchor<f64>;
+    type CellAnchor = Anchor;
+    type Col = f64;
     type Context<'a> = EventCtx<'a>;
     type EdgeIdx = usize;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
-    type Row = Anchor<f64>;
+    type Row = f64;
 
-    fn cursor_cell(&self, cursor: &Cursor<Self>) -> (Self::Row, Self::Col) {
+    fn cursor_cell(
+        &self,
+        cursor: &Cursor<Self>,
+        keep: PreserveCell<Self>,
+    ) -> (Self::CellAnchor, Self::Row, Self::Col) {
         let (anchor, pos) = match *cursor {
             Cursor::Node(n) => {
                 let node = &self.nodes[&n];
                 (
-                    AnchorPoint::Node(n),
+                    Anchor::Node(n),
                     Vec2::new(node.rect().size().width * 0.5, Node::PORT_Y_OFFS),
                 )
             },
             Cursor::Port(SidedPort(s, n, p)) => {
                 let node = &self.nodes[&n];
-                (AnchorPoint::Node(n), node.port_pos(p, s) - node.pos)
+                (Anchor::Node(n), node.port_pos(p, s) - node.pos)
             },
-            Cursor::Edge(p, i) => (AnchorPoint::Edge(p, i), Vec2::ZERO),
-            Cursor::FixedPoint(p) => (AnchorPoint::Fixed, p.to_vec2()),
+            Cursor::Edge(p, i) => (Anchor::Edge(p, i), Vec2::ZERO),
+            Cursor::FixedPoint(p) => (Anchor::Fixed, p.to_vec2()),
         };
-        (Anchor(anchor, pos.y), Anchor(anchor, pos.x))
+
+        match keep {
+            PreserveCell::Overwrite => (anchor, pos.y, pos.x),
+            PreserveCell::Row(&a, &r) if a == anchor => (anchor, r, pos.x),
+            PreserveCell::Row(a, &r) => (anchor, r + a.get(self).y - anchor.get(self).y, pos.x),
+            PreserveCell::Col(&a, &c) if a == anchor => (anchor, pos.y, c),
+            PreserveCell::Col(a, &c) => (anchor, pos.y, c + a.get(self).x - anchor.get(self).x),
+        }
     }
 
     fn nearest_port(
         &self,
         n: &Self::Node,
         side: Side,
-        cell: (&Self::Row, &Self::Col),
+        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
     ) -> Option<Self::PortIdx> {
         let node = &self.nodes[n];
         let len = match side {
             Side::In => node.in_edges.len(),
             Side::Out => node.out_edges.len(),
         };
-        let pos = self.cell_point(*cell.0, *cell.1);
+        let pos = self.cell_point(cell);
 
         let (port, _) = (0..len)
             .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
@@ -489,15 +506,27 @@ impl GraphWidget for GraphCore {
     fn nearest_edge(
         &self,
         port: &SidedPort<Self>,
-        cell: (&Self::Row, &Self::Col),
+        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
     ) -> Option<Self::EdgeIdx> {
         let SidedPort(s, n, p) = *port;
         let node = &self.nodes[&n];
 
         let i = match s {
             Side::In => node.in_edges[p].map(|_| 0),
-            // TODO: actually pick the nearest one
-            Side::Out => (!node.out_edges[p].is_empty()).then_some(0),
+            Side::Out => {
+        let pos = self.cell_point(cell);
+                node.out_edges[p]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &Port(n2, p2))| {
+                        (
+                            i,
+                            edge_midpoint(node, p, &self.nodes[&n2], p2).distance_squared(pos),
+                        )
+                    })
+                    .min_by(|(_, d), (_, e)| d.total_cmp(e))
+                    .map(|(i, _)| i)
+            },
         }?;
 
         Some(i)
@@ -540,7 +569,7 @@ impl GraphWidget for GraphCore {
                 self.pan.pan = match cursor {
                     Cursor::Node(n) => self.nodes[n].rect().center(),
                     &Cursor::Port(SidedPort(s, n, p)) => self.nodes[&n].port_pos(p, s),
-                    Cursor::Edge(p, e) => AnchorPoint::Edge(*p, *e).get(self),
+                    Cursor::Edge(p, e) => self.edge_midpoint(*p, *e),
                     Cursor::FixedPoint(p) => *p,
                 }
                 .to_vec2();
