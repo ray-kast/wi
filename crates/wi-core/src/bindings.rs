@@ -1,4 +1,7 @@
-use crate::trie::{trie, Acceptor};
+use crate::{
+    action::{Action, prelude::*},
+    trie::{Acceptor, trie},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -17,36 +20,30 @@ pub enum Step {
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Action {
-    PushCount(char),
-    Step(Step),
-    ViewCursor,
-}
-
 use tracing::debug;
-use Action as A;
 use Key::{Char as C, Named as N};
 use NamedKey as K;
 
 use crate::modifiers::M_NONE;
 
 trie! {
-    pub fn NormalAccept(k: Key) -> Option<Action> {
-        C(c @ '0'..='9', _, M_NONE) => Count(A::PushCount(c)) @ "" {
+    #[advance = Nop]
+    pub fn NormalAccept(k: Key) -> Action {
+        C(c @ '1'..='9', _, M_NONE) => Count(PushCount(c)) @ "" {
+            C(c @ '0'..='9', _, M_NONE) => Count(PushCount(c)) { .. },
             _ => continue,
         },
 
-        C('h', _, M_NONE) | N(K::ArrowLeft, M_NONE) => yield A::Step(Step::Left),
-        C('j', _, M_NONE) | N(K::ArrowDown, M_NONE) => yield A::Step(Step::Down),
-        C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield A::Step(Step::Up),
-        C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield A::Step(Step::Right),
+        C('h', _, M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
+        C('j', _, M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
+        C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
+        C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
 
         C('z', _, M_NONE) => View @ "z" {
-            . => yield A::ViewCursor,
+            . => yield ViewCursor,
             _ => yield,
         },
-        N(K::Home, M_NONE) => yield A::ViewCursor,
+        N(K::Home, M_NONE) => yield ViewCursor,
         _ => yield,
     }
 }
@@ -66,7 +63,7 @@ impl Default for Mode {
 }
 
 impl Acceptor<Key> for Mode {
-    type Output = (bool, Option<Action>);
+    type Output = Action;
 
     fn pending_op(&self) -> &'static str {
         match self {
@@ -78,8 +75,7 @@ impl Acceptor<Key> for Mode {
         debug!("Handling keypress");
         match self {
             Self::Normal { accept, .. } => {
-                let action = accept.accept(input);
-                (*accept != NormalAccept::default(), action)
+                accept.accept(input)
             },
         }
     }

@@ -6,7 +6,7 @@ use std::{
 pub use crate::cursor::Cursor;
 use crate::{bindings::Mode, status::Status};
 
-mod actions;
+mod action;
 mod bindings;
 mod cursor;
 mod keyboard;
@@ -41,7 +41,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(side, node, port) = self;
-        f.debug_tuple("Port").field(side).field(node).field(port).finish()
+        f.debug_tuple("Port")
+            .field(side)
+            .field(node)
+            .field(port)
+            .finish()
     }
 }
 
@@ -54,6 +58,7 @@ pub enum CursorUpdate {
 pub trait GraphWidget {
     type Node;
     type PortIdx;
+    type OutEdgeIdx;
     type Row;
     type Col;
     type Point;
@@ -98,6 +103,7 @@ impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
 where
     W::Node: fmt::Debug,
     W::PortIdx: fmt::Debug,
+    W::OutEdgeIdx: fmt::Debug,
     W::Row: fmt::Debug,
     W::Col: fmt::Debug,
     W::Point: fmt::Debug,

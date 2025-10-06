@@ -14,10 +14,6 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         let pre_status = self.status();
         let handled = f(self, widget, ctx);
 
-        if !handled {
-            self.unhandled_keypress();
-        }
-
         if pre_status != self.status() {
             widget.update_status(self.status(), ctx);
         }
@@ -43,12 +39,8 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
             let mut any_handled = false;
 
             for char in chars.chars() {
-                let handled = match me.mode.accept(Key::Char(char, shift, mods)) {
-                    (_, Some(a)) => me.process_action(widget, a, ctx),
-                    (h, None) => h,
-                };
-
-                any_handled |= handled;
+                let action = me.mode.accept(Key::Char(char, shift, mods));
+                any_handled |= me.process_action(widget, action, ctx);
             }
 
             any_handled
@@ -68,13 +60,8 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         ctx: &mut W::Context<'_>,
     ) -> bool {
         self.mutate_check(widget, ctx, |me, widget, ctx| {
-            match me.mode.accept(Key::Named(key, mods)) {
-                (_, Some(a)) => me.process_action(widget, a, ctx),
-                (h, None) => h,
-            }
+            let action = me.mode.accept(Key::Named(key, mods));
+            me.process_action(widget, action, ctx)
         })
     }
-
-    #[inline]
-    fn unhandled_keypress(&mut self) { self.count = None; }
 }

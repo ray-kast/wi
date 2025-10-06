@@ -383,6 +383,7 @@ impl GraphWidget for GraphCore {
     type Col = Anchor<f64>;
     type Context<'a> = EventCtx<'a>;
     type Node = usize;
+    type OutEdgeIdx = (usize, usize);
     type Point = Point;
     type PortIdx = usize;
     type Row = Anchor<f64>;
@@ -397,6 +398,7 @@ impl GraphWidget for GraphCore {
                 let node = &self.nodes[&n];
                 (Some(n), node.port_pos(p, s) - node.pos)
             },
+            Cursor::Edge(n, e) => todo!(),
             Cursor::FixedPoint(p) => (None, p.to_vec2()),
         };
         (Anchor(node, pos.y), Anchor(node, pos.x))
@@ -476,6 +478,7 @@ impl GraphWidget for GraphCore {
                 self.pan.pan = match cursor {
                     Cursor::Node(n) => self.nodes[n].rect().center(),
                     &Cursor::Port(wi_core::Port(s, n, p)) => self.nodes[&n].port_pos(p, s),
+                    Cursor::Edge(n, e) => todo!(),
                     Cursor::FixedPoint(p) => *p,
                 }
                 .to_vec2();

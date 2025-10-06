@@ -8,6 +8,7 @@ pub trait Acceptor<T> {
 
 macro_rules! trie {
     (
+        $(#[advance = $adv:expr])?
         $vis:vis fn $ty:ident($in_id:ident: $inp:ty) -> $out:ty { $($body:tt)* }
         $($($trail:tt)+)?
     ) => {
@@ -21,7 +22,7 @@ macro_rules! trie {
             }
 
             fn accept(&mut self, $in_id: $inp) -> $out {
-                trie!(@accept ($ty self $in_id) {} Start () { $($body)* })
+                trie!(@accept ($ty self $in_id ($($adv)?)) {} Start () { $($body)* })
             }
         }
 
@@ -41,6 +42,13 @@ macro_rules! trie {
 
     (@enum_def $args:tt $any:ident { $($body:tt)* } {
         $bind:pat => yield $($out:expr)?
+        $(, $($rest:tt)*)?
+    } $($vars:tt)*) => {
+        trie!(@enum_def $args true { $($body)* } { $($($rest)*)? } $($vars)*);
+    };
+
+    (@enum_def $args:tt $any:ident { $($body:tt)* } {
+        $bind:pat => $var:ident $(($out:expr))? { .. }
         $(, $($rest:tt)*)?
     } $($vars:tt)*) => {
         trie!(@enum_def $args true { $($body)* } { $($($rest)*)? } $($vars)*);
@@ -88,6 +96,13 @@ macro_rules! trie {
         trie!(@op $args true $body $cur_op { $($($rest)*)? } $($vars)*)
     };
 
+    (@op $args:tt $any:ident $body:tt $cur_op:tt {
+        $bind:pat => $var:ident $(($out:expr))? { .. }
+        $(, $($rest:tt)*)?
+    } $($vars:tt)*) => {
+        trie!(@op $args true $body $cur_op { $($($rest)*)? } $($vars)*)
+    };
+
     (@op $args:tt $any:ident { $($body:tt)* } ($($cur_op:expr),*) {
         $bind:pat => $var:ident $(($out:expr))? @ $op:literal { $($state:tt)* }
         $(, $($rest:tt)*)?
@@ -128,7 +143,17 @@ macro_rules! trie {
     } $($vars:tt)*) => {
         trie!(@accept $args {
             $($body)*
-            (Self::$var, $bind) => (Self::Start, trie!(@accept_out $($out)?)),
+            (Self::$var, $bind) => (Self::Start, trie!(@accept_out $args true $($out)?)),
+        } $var $cur_bind { $($($rest)*)? } $($vars)*)
+    };
+
+    (@accept $args:tt { $($body:tt)* } $var:ident $cur_bind:tt {
+        $bind:pat => $next:ident $(($out:expr))? { .. }
+        $(, $($rest:tt)*)?
+    } $($vars:tt)*) => {
+        trie!(@accept $args {
+            $($body)*
+            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args false $($out)?)),
         } $var $cur_bind { $($($rest)*)? } $($vars)*)
     };
 
@@ -138,7 +163,7 @@ macro_rules! trie {
     } $($vars:tt)*) => {
         trie!(@accept $args {
             $($body)*
-            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $($out)?)),
+            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args false $($out)?)),
         } $var $cur_bind { $($($rest)*)? } $next ($bind) { $($state)* } $($vars)*)
     };
 
@@ -146,17 +171,19 @@ macro_rules! trie {
         trie!(@accept $args $body $($vars)*)
     };
 
-    (@accept_out) => { Self::Output::default() };
-    (@accept_out _) => { Self::Output::default() };
-    (@accept_out $out:expr) => { Self::Output::from($out) };
+    (@accept_out ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) false) => {
+        trie!(@accept_out ($ty $self $inp ()) true $($adv)?)
+    };
+    (@accept_out $args:tt true) => { Self::Output::default() };
+    (@accept_out $args:tt $leaf:ident $out:expr) => { Self::Output::from($out) };
 
-    (@accept_continue ($ty:ident $self:ident $inp:ident)) => {
+    (@accept_continue ($ty:ident $self:ident $inp:ident ($($adv:expr)?))) => {
         { *$self = Self::Start; continue }
     };
 
-    (@accept ($ty:ident $self:ident $inp:ident) {}) => { match (*$self, $inp) {} };
+    (@accept ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) {}) => { match (*$self, $inp) {} };
 
-    (@accept ($ty:ident $self:ident $inp:ident) { $($body:tt)+ }) => {
+    (@accept ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) { $($body:tt)+ }) => {
         loop {
             let (next, out) = match (*$self, $inp) { $($body)* };
             *$self = next;
