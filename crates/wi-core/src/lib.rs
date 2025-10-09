@@ -3,7 +3,7 @@ use std::{
     num::{NonZeroIsize, NonZeroU32},
 };
 
-pub use crate::cursor::Cursor;
+pub use crate::cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor};
 use crate::{bindings::Mode, status::Status};
 
 mod action;
@@ -31,100 +31,15 @@ impl Side {
     }
 }
 
-pub struct Port<W: GraphWidget + ?Sized>(pub W::Node, pub W::PortIdx);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Port<N, P>(pub N, pub P);
 
-impl<W: GraphWidget + ?Sized> Clone for Port<W>
-where
-    W::Node: Clone,
-    W::PortIdx: Clone,
-{
-    fn clone(&self) -> Self { Self(self.0.clone(), self.1.clone()) }
+pub type WPort<W> = Port<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
 
-    fn clone_from(&mut self, source: &Self) {
-        let Self(n, p) = self;
-        n.clone_from(&source.0);
-        p.clone_from(&source.1);
-    }
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SidedPort<N, P>(pub Side, pub Port<N, P>);
 
-impl<W: GraphWidget + ?Sized> Copy for Port<W>
-where
-    W::Node: Copy,
-    W::PortIdx: Copy,
-{
-}
-
-impl<W: GraphWidget + ?Sized> fmt::Debug for Port<W>
-where
-    W::Node: fmt::Debug,
-    W::PortIdx: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self(node, port) = self;
-        f.debug_tuple("Port").field(node).field(port).finish()
-    }
-}
-
-impl<W: GraphWidget + ?Sized> PartialEq for Port<W>
-where
-    W::Node: PartialEq,
-    W::PortIdx: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        let Self(n, p) = self;
-        *n == other.0 && *p == other.1
-    }
-}
-
-pub struct SidedPort<W: GraphWidget + ?Sized>(pub Side, pub W::Node, pub W::PortIdx);
-
-impl<W: GraphWidget + ?Sized> Clone for SidedPort<W>
-where
-    W::Node: Clone,
-    W::PortIdx: Clone,
-{
-    fn clone(&self) -> Self { Self(self.0, self.1.clone(), self.2.clone()) }
-
-    fn clone_from(&mut self, source: &Self) {
-        let Self(s, n, p) = self;
-        *s = source.0;
-        n.clone_from(&source.1);
-        p.clone_from(&source.2);
-    }
-}
-
-impl<W: GraphWidget + ?Sized> Copy for SidedPort<W>
-where
-    W::Node: Copy,
-    W::PortIdx: Copy,
-{
-}
-
-impl<W: GraphWidget + ?Sized> fmt::Debug for SidedPort<W>
-where
-    W::Node: fmt::Debug,
-    W::PortIdx: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self(side, node, port) = self;
-        f.debug_tuple("SidedPort")
-            .field(side)
-            .field(node)
-            .field(port)
-            .finish()
-    }
-}
-
-impl<W: GraphWidget + ?Sized> PartialEq for SidedPort<W>
-where
-    W::Node: PartialEq,
-    W::PortIdx: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        let Self(s, n, p) = self;
-        *s == other.0 && *n == other.1 && *p == other.2
-    }
-}
+pub type WSidedPort<W> = SidedPort<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CursorUpdate {
@@ -132,31 +47,52 @@ pub enum CursorUpdate {
     CenterInView,
 }
 
-pub enum PreserveCell<'a, W: GraphWidget + ?Sized> {
-    Overwrite,
-    Row(&'a W::CellAnchor, &'a W::Row),
-    Col(&'a W::CellAnchor, &'a W::Col),
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Cell<A, R, C> {
+    pub anchor: A,
+    pub row: R,
+    pub col: C,
 }
 
-impl<W: GraphWidget + ?Sized> fmt::Debug for PreserveCell<'_, W>
-where
-    W::CellAnchor: fmt::Debug,
-    W::Row: fmt::Debug,
-    W::Col: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Overwrite => f.write_str("Overwrite"),
-            Self::Row(a, r) => f.debug_tuple("Row").field(&a).field(&r).finish(),
-            Self::Col(a, c) => f.debug_tuple("Col").field(&a).field(&c).finish(),
+impl<A, R, C> Cell<A, R, C> {
+    #[inline]
+    fn as_ref(&self) -> Cell<&A, &R, &C> {
+        Cell {
+            anchor: &self.anchor,
+            row: &self.row,
+            col: &self.col,
         }
     }
 }
 
+pub type WCell<W> =
+    Cell<<W as GraphWidget>::CellAnchor, <W as GraphWidget>::Row, <W as GraphWidget>::Col>;
+
+pub type WCellRef<'a, W> = Cell<
+    &'a <W as GraphWidget>::CellAnchor,
+    &'a <W as GraphWidget>::Row,
+    &'a <W as GraphWidget>::Col,
+>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PreserveCell<A, R, C> {
+    Overwrite,
+    Row(A, R),
+    Col(A, C),
+}
+
+pub type WPreserveCell<W> =
+    PreserveCell<<W as GraphWidget>::CellAnchor, <W as GraphWidget>::Row, <W as GraphWidget>::Col>;
+
+pub type WPreserveCellRef<'a, W> = PreserveCell<
+    &'a <W as GraphWidget>::CellAnchor,
+    &'a <W as GraphWidget>::Row,
+    &'a <W as GraphWidget>::Col,
+>;
+
 pub trait GraphWidget {
     type Node;
     type PortIdx;
-    type EdgeIdx;
 
     type CellAnchor;
     type Row;
@@ -166,44 +102,33 @@ pub trait GraphWidget {
 
     type Context<'a>;
 
-    fn cursor_cell(
-        &self,
-        cursor: &Cursor<Self>,
-        keep: PreserveCell<Self>,
-    ) -> (Self::CellAnchor, Self::Row, Self::Col);
+    fn cursor_cell(&self, cursor: &WCursor<Self>, keep: WPreserveCellRef<Self>) -> WCell<Self>;
 
     fn nearest_port(
         &self,
         node: &Self::Node,
         side: Side,
-        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
+        cell: WCellRef<Self>,
     ) -> Option<Self::PortIdx>;
 
     fn step_port_by(
         &self,
-        port: &SidedPort<Self>,
+        port: &WSidedPort<Self>,
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)>;
 
-    fn nearest_edge(
-        &self,
-        port: &SidedPort<Self>,
-        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
-    ) -> Option<Self::EdgeIdx>;
+    fn nearest_edge(&self, port: &WSidedPort<Self>, cell: WCellRef<Self>) -> Option<WEdgeCursor<Self>>;
 
     fn step_edge_by(
         &self,
-        port: &SidedPort<Self>,
-        edge: &Self::EdgeIdx,
+        edge: &WEdgeCursor<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::EdgeIdx)>;
-
-    fn edge_port(&self, port: &SidedPort<Self>, edge: &Self::EdgeIdx, side: Side) -> Port<Self>;
+    ) -> Option<(NonZeroIsize, WPort<Self>)>;
 
     fn update_cursor(
         &mut self,
         update: CursorUpdate,
-        cursor: &Cursor<Self>,
+        cursor: &WCursor<Self>,
         ctx: &mut Self::Context<'_>,
     );
 
@@ -212,8 +137,8 @@ pub trait GraphWidget {
 
 #[must_use]
 pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
-    cursor: Option<Cursor<W>>,
-    cell: Option<(W::CellAnchor, W::Row, W::Col)>,
+    cursor: Option<WCursor<W>>,
+    cell: Option<WCell<W>>,
     count: Option<NonZeroU32>,
     mode: Mode,
 }
@@ -222,7 +147,6 @@ impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
 where
     W::Node: fmt::Debug,
     W::PortIdx: fmt::Debug,
-    W::EdgeIdx: fmt::Debug,
     W::CellAnchor: fmt::Debug,
     W::Row: fmt::Debug,
     W::Col: fmt::Debug,
@@ -245,7 +169,7 @@ where
 }
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
-    pub fn new(cursor: Cursor<W>) -> Self {
+    pub fn new(cursor: WCursor<W>) -> Self {
         Self {
             cursor: Some(cursor),
             count: None,
@@ -255,11 +179,8 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     }
 
     #[inline]
-    pub fn cursor(&self) -> &Cursor<W> { self.cursor.as_ref().unwrap_or_else(|| unreachable!()) }
+    pub fn cursor(&self) -> &WCursor<W> { self.cursor.as_ref().unwrap_or_else(|| unreachable!()) }
 
     #[inline]
-    pub fn cursor_cell(&self) -> Option<(&W::CellAnchor, &W::Row, &W::Col)> {
-        let (anchor, row, col) = self.cell.as_ref()?;
-        Some((anchor, row, col))
-    }
+    pub fn cursor_cell(&self) -> Option<WCellRef<'_, W>> { Some(self.cell.as_ref()?.as_ref()) }
 }

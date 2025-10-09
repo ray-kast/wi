@@ -7,7 +7,8 @@ use masonry::{
 };
 use wi_core::{
     status::{ModeKind, Status},
-    Cursor, CursorUpdate, GraphWidget, GraphWidgetDriver, Port, PreserveCell, Side, SidedPort,
+    Cell, Cursor, CursorUpdate, EdgeCursor, GraphWidget, GraphWidgetDriver, Port, PreserveCell,
+    Side, SidedPort, WCell, WCellRef, WCursor, WEdgeCursor, WPort, WPreserveCellRef, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;
 
@@ -16,8 +17,8 @@ use crate::widget::drag::DragHandler;
 #[derive(Debug)]
 pub struct Node {
     pos: Point,
-    pub in_edges: Vec<Option<Port<GraphCore>>>,
-    pub out_edges: Vec<Vec<Port<GraphCore>>>,
+    pub in_edges: Vec<Option<WPort<GraphCore>>>,
+    pub out_edges: Vec<Vec<WPort<GraphCore>>>,
 }
 
 impl Node {
@@ -248,26 +249,17 @@ impl GraphCore {
     }
 
     #[inline]
-    pub fn cell_point(&self, cell: (&Anchor, &f64, &f64)) -> Point {
-        let (anchor, &row, &col) = cell;
-        anchor.get(self) + Vec2::new(col, row)
+    pub fn cell_point(&self, cell: WCellRef<Self>) -> Point {
+        let Cell { anchor, row, col } = cell;
+        anchor.get(self) + Vec2::new(*col, *row)
     }
 
-    fn edge_midpoint(&self, port: SidedPort<Self>, edge: usize) -> Point {
-        let SidedPort(s, n, p) = port;
-        let node = &self.nodes[&n];
+    fn edge_midpoint(&self, from: WPort<Self>, to: WPort<Self>) -> Point {
+        let Port(from_node, from_port) = from;
+        let Port(to_node, to_port) = to;
 
-        let (from_node, from_port, to_node, to_port) = match s {
-            Side::In => {
-                assert!(edge == 0);
-                let Port(n2, p2) = node.in_edges[p].unwrap();
-                (&self.nodes[&n2], p2, node, p)
-            },
-            Side::Out => {
-                let Port(n2, p2) = node.out_edges[p][edge];
-                (node, p, &self.nodes[&n2], p2)
-            },
-        };
+        let from_node = &self.nodes[&from_node];
+        let to_node = &self.nodes[&to_node];
 
         edge_midpoint(from_node, from_port, to_node, to_port)
     }
@@ -410,7 +402,7 @@ impl RenderedStatus {
 pub enum Anchor {
     Fixed,
     Node(usize),
-    Edge(SidedPort<GraphCore>, usize),
+    Edge(WPort<GraphCore>, WPort<GraphCore>),
 }
 
 impl Anchor {
@@ -418,7 +410,7 @@ impl Anchor {
         match self {
             Self::Fixed => Point::ZERO,
             Self::Node(n) => graph.nodes[&n].pos,
-            Self::Edge(p, i) => graph.edge_midpoint(p, i),
+            Self::Edge(i, o) => graph.edge_midpoint(i, o),
         }
     }
 }
@@ -427,17 +419,12 @@ impl GraphWidget for GraphCore {
     type CellAnchor = Anchor;
     type Col = f64;
     type Context<'a> = EventCtx<'a>;
-    type EdgeIdx = usize;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
     type Row = f64;
 
-    fn cursor_cell(
-        &self,
-        cursor: &Cursor<Self>,
-        keep: PreserveCell<Self>,
-    ) -> (Self::CellAnchor, Self::Row, Self::Col) {
+    fn cursor_cell(&self, cursor: &WCursor<Self>, keep: WPreserveCellRef<Self>) -> WCell<Self> {
         let (anchor, pos) = match *cursor {
             Cursor::Node(n) => {
                 let node = &self.nodes[&n];
@@ -446,20 +433,40 @@ impl GraphWidget for GraphCore {
                     Vec2::new(node.rect().size().width * 0.5, Node::PORT_Y_OFFS),
                 )
             },
-            Cursor::Port(SidedPort(s, n, p)) => {
+            Cursor::Port(SidedPort(s, Port(n, p))) => {
                 let node = &self.nodes[&n];
                 (Anchor::Node(n), node.port_pos(p, s) - node.pos)
             },
-            Cursor::Edge(p, i) => (Anchor::Edge(p, i), Vec2::ZERO),
+            Cursor::Edge(e) => (Anchor::Edge(e.from, e.to), Vec2::ZERO),
             Cursor::FixedPoint(p) => (Anchor::Fixed, p.to_vec2()),
         };
 
         match keep {
-            PreserveCell::Overwrite => (anchor, pos.y, pos.x),
-            PreserveCell::Row(&a, &r) if a == anchor => (anchor, r, pos.x),
-            PreserveCell::Row(a, &r) => (anchor, r + a.get(self).y - anchor.get(self).y, pos.x),
-            PreserveCell::Col(&a, &c) if a == anchor => (anchor, pos.y, c),
-            PreserveCell::Col(a, &c) => (anchor, pos.y, c + a.get(self).x - anchor.get(self).x),
+            PreserveCell::Overwrite => Cell {
+                anchor,
+                row: pos.y,
+                col: pos.x,
+            },
+            PreserveCell::Row(&a, &row) if a == anchor => Cell {
+                anchor,
+                row,
+                col: pos.x,
+            },
+            PreserveCell::Row(a, &r) => Cell {
+                anchor,
+                row: r + a.get(self).y - anchor.get(self).y,
+                col: pos.x,
+            },
+            PreserveCell::Col(&a, &col) if a == anchor => Cell {
+                anchor,
+                row: pos.y,
+                col,
+            },
+            PreserveCell::Col(a, &c) => Cell {
+                anchor,
+                row: pos.y,
+                col: c + a.get(self).x - anchor.get(self).x,
+            },
         }
     }
 
@@ -467,7 +474,7 @@ impl GraphWidget for GraphCore {
         &self,
         n: &Self::Node,
         side: Side,
-        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
+        cell: WCellRef<Self>,
     ) -> Option<Self::PortIdx> {
         let node = &self.nodes[n];
         let len = match side {
@@ -485,10 +492,10 @@ impl GraphWidget for GraphCore {
 
     fn step_port_by(
         &self,
-        port: &SidedPort<Self>,
+        port: &WSidedPort<Self>,
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)> {
-        let SidedPort(side, n, port) = *port;
+        let SidedPort(side, Port(n, port)) = *port;
         let node = &self.nodes[&n];
 
         let res = port.saturating_add_signed(count).min(
@@ -505,72 +512,93 @@ impl GraphWidget for GraphCore {
 
     fn nearest_edge(
         &self,
-        port: &SidedPort<Self>,
-        cell: (&Self::CellAnchor, &Self::Row, &Self::Col),
-    ) -> Option<Self::EdgeIdx> {
-        let SidedPort(s, n, p) = *port;
-        let node = &self.nodes[&n];
+        port: &WSidedPort<Self>,
+        cell: WCellRef<Self>,
+    ) -> Option<WEdgeCursor<Self>> {
+        let SidedPort(side, port) = *port;
+        let node = &self.nodes[&port.0];
 
-        let i = match s {
-            Side::In => node.in_edges[p].map(|_| 0),
+        let (from, to) = match side {
+            Side::In => (node.in_edges[port.1]?, port),
             Side::Out => {
-        let pos = self.cell_point(cell);
-                node.out_edges[p]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &Port(n2, p2))| {
-                        (
-                            i,
-                            edge_midpoint(node, p, &self.nodes[&n2], p2).distance_squared(pos),
-                        )
-                    })
-                    .min_by(|(_, d), (_, e)| d.total_cmp(e))
-                    .map(|(i, _)| i)
+                let pos = self.cell_point(cell);
+                (
+                    port,
+                    node.out_edges[port.1]
+                        .iter()
+                        .map(|&p| {
+                            (
+                                p,
+                                edge_midpoint(node, port.1, &self.nodes[&p.0], p.1)
+                                    .distance_squared(pos),
+                            )
+                        })
+                        .min_by(|(_, d), (_, e)| d.total_cmp(e))?
+                        .0,
+                )
             },
-        }?;
+        };
 
-        Some(i)
+        Some(EdgeCursor {
+            from,
+            to,
+            anchor: Side::In,
+        })
     }
 
     fn step_edge_by(
         &self,
-        port: &SidedPort<Self>,
-        edge: &Self::EdgeIdx,
+        edge: &WEdgeCursor<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::EdgeIdx)> {
-        let SidedPort(s, n, p) = *port;
+    ) -> Option<(NonZeroIsize, WPort<Self>)> {
+        let (anchor, &port) = edge.anchor_port();
+        let node = &self.nodes[&port.0];
+        let ports = match anchor {
+            Side::In => return None,
+            Side::Out => &node.out_edges[port.1],
+        };
 
-        let res = edge.saturating_add_signed(count).min(match s {
-            Side::In => 0,
-            Side::Out => self.nodes[&n].out_edges[p].len().saturating_sub(1),
+        let mut sorted: Vec<_> = ports
+            .iter()
+            .map(|&p| {
+                let n = &self.nodes[&p.0];
+                (p, match anchor {
+                    Side::In => edge_midpoint(n, p.1, node, port.1),
+                    Side::Out => edge_midpoint(node, port.1, n, p.1),
+                })
+            })
+            .collect();
+        sorted.sort_unstable_by(|(p1, o1), (p2, o2)| {
+            o1.y.total_cmp(&o2.y)
+                .then_with(|| o1.x.total_cmp(&o2.x))
+                .then_with(|| p1.0.cmp(&p2.0))
+                .then_with(|| p1.1.cmp(&p2.1))
         });
 
+        let port = *edge.free_port();
+        let idx = sorted
+            .iter()
+            .enumerate()
+            .find_map(|(i, (p, _))| (*p == port).then_some(i))
+            .unwrap();
+
+        let res = idx
+            .saturating_add_signed(count)
+            .min(sorted.len().checked_sub(1)?);
+
         #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new(res.wrapping_sub(*edge) as isize).map(|d| (d, res))
+        NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, sorted[res].0))
     }
 
-    fn edge_port(&self, port: &SidedPort<Self>, edge: &Self::EdgeIdx, side: Side) -> Port<Self> {
-        let SidedPort(edge_side, node, port) = *port;
-        if side == edge_side {
-            let node = &self.nodes[&node];
-            match side {
-                Side::In => node.in_edges[port].unwrap(),
-                Side::Out => node.out_edges[port][*edge],
-            }
-        } else {
-            Port(node, port)
-        }
-    }
-
-    fn update_cursor(&mut self, update: CursorUpdate, cursor: &Cursor<Self>, ctx: &mut EventCtx) {
+    fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, ctx: &mut EventCtx) {
         match update {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
-                self.pan.pan = match cursor {
-                    Cursor::Node(n) => self.nodes[n].rect().center(),
-                    &Cursor::Port(SidedPort(s, n, p)) => self.nodes[&n].port_pos(p, s),
-                    Cursor::Edge(p, e) => self.edge_midpoint(*p, *e),
-                    Cursor::FixedPoint(p) => *p,
+                self.pan.pan = match *cursor {
+                    Cursor::Node(n) => self.nodes[&n].rect().center(),
+                    Cursor::Port(SidedPort(s, Port(n, p))) => self.nodes[&n].port_pos(p, s),
+                    Cursor::Edge(e) => self.edge_midpoint(e.from, e.to),
+                    Cursor::FixedPoint(p) => p,
                 }
                 .to_vec2();
                 self.zoom.0 = 0.0;

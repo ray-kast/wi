@@ -1,18 +1,23 @@
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        EventCtx, Ime, KeyboardEvent, PointerButton, PointerEvent, TextEvent, Update, Widget,
+        EventCtx, Ime, KeyboardEvent, PaintCtx, PointerButton, PointerEvent, TextEvent, Update,
+        Widget,
     },
     kurbo::{Affine, Circle, Point, Rect, Size, Stroke},
     peniko::{color::OpaqueColor, BlendMode, Fill},
+    vello::Scene,
 };
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
-    Cursor, GraphWidgetDriver, Side, SidedPort,
+    Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
-use self::{core::GraphCore, edge::Edge};
+use self::{
+    core::{GraphCore, Node},
+    edge::Edge,
+};
 
 mod core;
 mod drag;
@@ -36,6 +41,95 @@ impl Graph {
             driver,
             viewport: Rect::ZERO,
         }
+    }
+
+    fn paint_port(ctx: &mut PaintCtx, scene: &mut Scene, tf: Affine, pos: Point, focused: bool) {
+        scene.fill(
+            Fill::NonZero,
+            tf,
+            if ctx.is_focus_target() && focused {
+                OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+            } else {
+                OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
+            },
+            None,
+            &Circle::new(pos, 6.0),
+        );
+    }
+
+    fn paint_node(
+        ctx: &mut PaintCtx,
+        scene: &mut Scene,
+        tf: Affine,
+        id: usize,
+        node: &Node,
+        focus_node: Option<&usize>,
+        focus_port: Option<(Side, &WPort<GraphCore>)>,
+    ) {
+        let rect = node.rect();
+
+        scene.fill(
+            Fill::NonZero,
+            tf,
+            OpaqueColor::from_rgb8(0x27, 0x27, 0x27).with_alpha(0.7),
+            None,
+            &rect,
+        );
+
+        scene.stroke(
+            &Stroke::new(4.0),
+            tf,
+            if ctx.is_focus_target() && focus_node == Some(&id) {
+                OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+            } else {
+                OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a)
+            },
+            None,
+            &rect,
+        );
+
+        for port in 0..node.in_edges.len() {
+            Self::paint_port(
+                ctx,
+                scene,
+                tf,
+                node.port_pos(port, Side::In),
+                focus_port == Some((Side::In, &Port(id, port))),
+            );
+        }
+
+        for port in 0..node.out_edges.len() {
+            Self::paint_port(
+                ctx,
+                scene,
+                tf,
+                node.port_pos(port, Side::Out),
+                focus_port == Some((Side::Out, &Port(id, port))),
+            );
+        }
+    }
+
+    fn paint_edge(
+        ctx: &mut PaintCtx,
+        scene: &mut Scene,
+        tf: Affine,
+        focused: bool,
+        from: Point,
+        to: Point,
+        bias_upward: bool,
+    ) {
+        scene.stroke(
+            &Stroke::new(4.0),
+            tf,
+            // TODO: broken
+            if ctx.is_focus_target() && focused {
+                OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
+            } else {
+                OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f)
+            },
+            None,
+            &Edge::new(from, to, bias_upward),
+        );
     }
 }
 
@@ -72,13 +166,45 @@ impl Widget for Graph {
 
     fn paint(
         &mut self,
-        ctx: &mut masonry::core::PaintCtx,
+        ctx: &mut PaintCtx,
         _props: &masonry::core::PropertiesRef<'_>,
-        scene: &mut masonry::vello::Scene,
+        scene: &mut Scene,
     ) {
-        let transform = self.core.view_transform(ctx.size());
+        let tf = self.core.view_transform(ctx.size());
 
         scene.push_layer(BlendMode::default(), 1.0, Affine::IDENTITY, &self.viewport);
+
+        let focus_node;
+        let focus_port;
+        let focus_edge;
+        let focus_point;
+
+        match self.driver.cursor() {
+            &Cursor::Node(n) => {
+                focus_node = Some(n);
+                focus_port = None;
+                focus_edge = None;
+                focus_point = None;
+            },
+            &Cursor::Port(SidedPort(s, ref p)) => {
+                focus_node = None;
+                focus_port = Some((s, p));
+                focus_edge = None;
+                focus_point = None;
+            },
+            Cursor::Edge(e) => {
+                focus_node = None;
+                focus_port = Some(e.anchor_port());
+                focus_edge = Some(e);
+                focus_point = None;
+            },
+            &Cursor::FixedPoint(p) => {
+                focus_node = None;
+                focus_port = None;
+                focus_edge = None;
+                focus_point = Some(p);
+            },
+        }
 
         for (&node_id, node) in &self.core.nodes {
             for (i, port) in node.in_edges.iter().enumerate() {
@@ -87,106 +213,46 @@ impl Widget for Graph {
                 let from_pos = from.port_pos(port.1, Side::Out);
                 let to_pos = node.port_pos(i, Side::In);
 
-                scene.stroke(
-                    &Stroke::new(4.0),
-                    transform,
-                    // TODO: broken
-                    if ctx.is_focus_target()
-                        && let &Cursor::Edge(SidedPort(s, n, p), e) = self.driver.cursor()
-                        && match s {
-                            Side::In => n == node_id && p == i,
-                            Side::Out => n == port.0 && p == port.1,
-                        }
-                    {
-                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
-                    } else {
-                        OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f)
-                    },
-                    None,
-                    &Edge::new(from_pos, to_pos, port.1 < from.out_edges.len() / 2),
+                Self::paint_edge(
+                    ctx,
+                    scene,
+                    tf,
+                    focus_edge.is_some_and(|e| (e.from, e.to) == (*port, Port(node_id, i))),
+                    from_pos,
+                    to_pos,
+                    port.1 < from.out_edges.len() / 2,
                 );
             }
         }
 
-        for (&i, node) in &self.core.nodes {
-            let rect = node.rect();
-
-            scene.fill(
-                Fill::NonZero,
-                transform,
-                OpaqueColor::from_rgb8(0x27, 0x27, 0x27).with_alpha(0.7),
-                None,
-                &rect,
+        for (&id, node) in &self.core.nodes {
+            Self::paint_node(
+                ctx,
+                scene,
+                tf,
+                id,
+                node,
+                focus_node.as_ref(),
+                focus_port,
             );
-
-            scene.stroke(
-                &Stroke::new(4.0),
-                transform,
-                if ctx.is_focus_target()
-                    && let &Cursor::Node(n) = self.driver.cursor()
-                    && n == i
-                {
-                    OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
-                } else {
-                    OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a)
-                },
-                None,
-                &rect,
-            );
-
-            for port in 0..node.in_edges.len() {
-                scene.fill(
-                    Fill::NonZero,
-                    transform,
-                    if ctx.is_focus_target()
-                        && let &Cursor::Port(SidedPort(Side::In, n, p)) = self.driver.cursor()
-                        && n == i
-                        && p == port
-                    {
-                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
-                    } else {
-                        OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
-                    },
-                    None,
-                    &Circle::new(node.port_pos(port, Side::In), 6.0),
-                );
-            }
-
-            for port in 0..node.out_edges.len() {
-                scene.fill(
-                    Fill::NonZero,
-                    transform,
-                    if ctx.is_focus_target()
-                        && let &Cursor::Port(SidedPort(Side::Out, n, p)) = self.driver.cursor()
-                        && n == i
-                        && p == port
-                    {
-                        OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
-                    } else {
-                        OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
-                    },
-                    None,
-                    &Circle::new(node.port_pos(port, Side::Out), 6.0),
-                );
-            }
         }
 
         #[cfg(debug_assertions)]
         if let Some(cell) = self.driver.cursor_cell() {
             let p = self.core.cell_point(cell);
             scene.stroke(
-                &Stroke::new(2.0),
-                transform,
+                &Stroke::new(1.0),
+                tf,
                 OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
                 None,
                 &Circle::new(p, 12.0),
             );
         }
 
-        if let &Cursor::FixedPoint(p) = self.driver.cursor() {
+        if let Some(p) = focus_point {
             scene.fill(
                 Fill::NonZero,
-                transform,
+                tf,
                 if ctx.is_focus_target() {
                     OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
                 } else {

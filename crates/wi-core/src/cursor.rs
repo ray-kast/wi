@@ -1,30 +1,76 @@
-use std::fmt;
+use crate::{
+    action::prelude::*, bindings::Step, Cell, CursorUpdate, GraphWidget, Port, PreserveCell, Side,
+    SidedPort, WCellRef,
+};
 
-use crate::{CursorUpdate, GraphWidget, Port, PreserveCell, Side, SidedPort, action::prelude::*, bindings::Step};
-
-pub enum Cursor<W: GraphWidget + ?Sized> {
-    Node(W::Node),
-    Port(SidedPort<W>),
-    Edge(SidedPort<W>, W::EdgeIdx),
-    FixedPoint(W::Point),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EdgeCursor<N, P> {
+    pub from: Port<N, P>,
+    pub to: Port<N, P>,
+    pub anchor: Side,
 }
 
-impl<W: GraphWidget + ?Sized> fmt::Debug for Cursor<W>
-where
-    W::Node: fmt::Debug,
-    W::PortIdx: fmt::Debug,
-    W::EdgeIdx: fmt::Debug,
-    W::Point: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Node(n) => f.debug_tuple("Node").field(n).finish(),
-            Self::Port(p) => f.debug_tuple("Port").field(p).finish(),
-            Self::Edge(n, e) => f.debug_tuple("Edge").field(n).field(e).finish(),
-            Self::FixedPoint(p) => f.debug_tuple("FixedPoint").field(p).finish(),
+impl<N, P> EdgeCursor<N, P> {
+    pub fn new(port: SidedPort<N, P>, opp: Port<N, P>) -> Self {
+        let SidedPort(side, port) = port;
+        let (from, to) = match side {
+            Side::In => (opp, port),
+            Side::Out => (port, opp),
+        };
+
+        Self {
+            from,
+            to,
+            anchor: side.flip(),
         }
     }
+
+    pub fn anchor_port(&self) -> (Side, &Port<N, P>) {
+        (self.anchor.flip(), match self.anchor {
+            Side::In => &self.from,
+            Side::Out => &self.to,
+        })
+    }
+
+    pub fn free_port(&self) -> &Port<N, P> {
+        match self.anchor {
+            Side::In => &self.to,
+            Side::Out => &self.from,
+        }
+    }
+
+    pub fn into_port(self, want: Side) -> SidedPort<N, P> {
+        SidedPort(want.flip(), match want {
+            Side::In => self.from,
+            Side::Out => self.to,
+        })
+    }
+
+    #[must_use]
+    pub fn step(self, port: Port<N, P>) -> Self {
+        let Self { from, to, anchor } = self;
+
+        let (from, to) = match anchor {
+            Side::In => (from, port),
+            Side::Out => (port, to),
+        };
+
+        Self { from, to, anchor }
+    }
 }
+
+pub type WEdgeCursor<W> = EdgeCursor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Cursor<Node, PortIdx, Point> {
+    Node(Node),
+    Port(SidedPort<Node, PortIdx>),
+    Edge(EdgeCursor<Node, PortIdx>),
+    FixedPoint(Point),
+}
+
+pub type WCursor<W> =
+    Cursor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx, <W as GraphWidget>::Point>;
 
 pub mod actions {
     use crate::bindings::Step;
@@ -76,21 +122,25 @@ impl EditorAction for actions::StepCursor {
         let Self(step) = self;
         let mut steps = count.map_or(1, NonZero::get);
         while steps > 0 {
-            let (anchor, row, col) = cx.driver.cell.get_or_insert_with(|| {
-                cx.widget
-                    .cursor_cell(cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()), PreserveCell::Overwrite)
+            let Cell { anchor, row, col } = cx.driver.cell.get_or_insert_with(|| {
+                cx.widget.cursor_cell(
+                    cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
+                    PreserveCell::Overwrite,
+                )
             });
+            let cell: WCellRef<W> = Cell { anchor, row, col };
 
             let dec;
+            let mut reset_cell = false;
             let cursor = match (
                 cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
                 step,
             ) {
                 (Cursor::Node(n), s @ (Step::Left | Step::Right)) => {
                     let side = horiz_side(s);
-                    if let Some(p) = cx.widget.nearest_port(&n, side, (anchor, row, col)) {
+                    if let Some(p) = cx.widget.nearest_port(&n, side, cell) {
                         dec = 1;
-                        Cursor::Port(SidedPort(side, n, p))
+                        Cursor::Port(SidedPort(side, Port(n, p)))
                     } else {
                         dec = steps;
                         Cursor::Node(n)
@@ -103,48 +153,52 @@ impl EditorAction for actions::StepCursor {
                 (Cursor::Port(p), s @ (Step::Left | Step::Right)) => {
                     let side = horiz_side(s);
                     if side == p.0 {
-                        if let Some(e) = cx.widget.nearest_edge(&p, (anchor, row, col)) {
+                        if let Some(e) = cx.widget.nearest_edge(&p, cell) {
                             dec = 1;
-                            Cursor::Edge(p, e)
+                            Cursor::Edge(e)
                         } else {
                             dec = steps;
                             Cursor::Port(p)
                         }
                     } else {
-                        let c = Cursor::Node(p.1);
                         dec = 1;
-                        c
+                        Cursor::Node(p.1 .0)
                     }
                 },
                 (Cursor::Port(p), s @ (Step::Down | Step::Up)) => {
                     let count;
                     (count, dec) = signed_steps(vert_is_down(s), steps);
                     if let Some((_, i)) = cx.widget.step_port_by(&p, count) {
-                        Cursor::Port(SidedPort(p.0, p.1, i))
+                        Cursor::Port(SidedPort(p.0, Port(p.1 .0, i)))
                     } else {
                         Cursor::Port(p)
                     }
                 },
-                (Cursor::Edge(p, e), s @ (Step::Left | Step::Right)) => {
-                    let side = horiz_side(s);
-                    let Port(node, port) = cx.widget.edge_port(&p, &e, side);
+                (Cursor::Edge(e), s @ (Step::Left | Step::Right)) => {
+                    let want = horiz_side(s);
                     dec = 1;
-                    Cursor::Port(SidedPort(side.flip(), node, port))
+                    reset_cell = true;
+                    Cursor::Port(e.into_port(want))
                 },
-                (Cursor::Edge(p, e), s @ (Step::Down | Step::Up)) => {
+                (Cursor::Edge(e), s @ (Step::Down | Step::Up)) => {
                     let count;
                     (count, dec) = signed_steps(vert_is_down(s), steps);
-                    if let Some((_, e)) = cx.widget.step_edge_by(&p, &e, count) {
-                        Cursor::Edge(p, e)
+                    if let Some((_, p)) = cx.widget.step_edge_by(&e, count) {
+                        Cursor::Edge(e.step(p))
                     } else {
-                        Cursor::Edge(p, e)
+                        Cursor::Edge(e)
                     }
                 },
                 (Cursor::FixedPoint(_p), _s) => todo!(),
             };
 
             steps = steps.checked_sub(dec).unwrap_or_else(|| unreachable!());
-            (*anchor, *row, *col) = cx.widget.cursor_cell(&cursor, match step {
+            Cell {
+                anchor: *anchor,
+                row: *row,
+                col: *col,
+            } = cx.widget.cursor_cell(&cursor, match step {
+                _ if reset_cell => PreserveCell::Overwrite,
                 Step::Left | Step::Right => PreserveCell::Row(anchor, row),
                 Step::Down | Step::Up => PreserveCell::Col(anchor, col),
             });

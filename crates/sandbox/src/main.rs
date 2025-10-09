@@ -15,7 +15,10 @@ fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
             .with(|g| {
                 g.node(Point::new(0.0, 0.0), 3, 2)
                     .node(Point::new(240.0, 0.0), 1, 1)
+                    .node(Point::new(240.0, 64.0), 2, 0)
                     .edge((0, 1), (1, 0))
+                    .edge((0, 1), (2, 0))
+                    .edge((0, 1), (2, 1))
             })
             .flex(1.0),
     ))
