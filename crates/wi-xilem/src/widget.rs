@@ -31,14 +31,12 @@ pub struct Graph {
 }
 
 impl Graph {
+    #[inline]
     pub fn new(graph: &crate::GraphView) -> Self {
-        let driver = GraphWidgetDriver::new(wi_core::Cursor::Node(
-            graph.nodes.keys().copied().min().unwrap_or(usize::MAX),
-        ));
-
+        let core = GraphCore::new(graph);
         Self {
-            core: GraphCore::new(graph, &driver),
-            driver,
+            driver: GraphWidgetDriver::new(&core),
+            core,
             viewport: Rect::ZERO,
         }
     }
@@ -238,8 +236,9 @@ impl Widget for Graph {
         }
 
         #[cfg(debug_assertions)]
-        if let Some(cell) = self.driver.cursor_cell() {
-            let p = self.core.cell_point(cell);
+        {
+            let &(anchor, offs) = self.driver.cursor_cell();
+            let p = anchor.get(&self.core) + offs;
             scene.stroke(
                 &Stroke::new(1.0),
                 tf,

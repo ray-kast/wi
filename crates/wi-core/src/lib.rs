@@ -3,12 +3,16 @@ use std::{
     num::{NonZeroIsize, NonZeroU32},
 };
 
-pub use crate::cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor};
+pub use crate::{
+    action::Action,
+    cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor},
+};
 use crate::{bindings::Mode, status::Status};
 
 mod action;
 mod bindings;
 mod cursor;
+mod jump;
 mod keyboard;
 pub mod modifiers;
 pub mod status;
@@ -47,68 +51,34 @@ pub enum CursorUpdate {
     CenterInView,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Cell<A, R, C> {
-    pub anchor: A,
-    pub row: R,
-    pub col: C,
-}
-
-impl<A, R, C> Cell<A, R, C> {
-    #[inline]
-    fn as_ref(&self) -> Cell<&A, &R, &C> {
-        Cell {
-            anchor: &self.anchor,
-            row: &self.row,
-            col: &self.col,
-        }
-    }
-}
-
-pub type WCell<W> =
-    Cell<<W as GraphWidget>::CellAnchor, <W as GraphWidget>::Row, <W as GraphWidget>::Col>;
-
-pub type WCellRef<'a, W> = Cell<
-    &'a <W as GraphWidget>::CellAnchor,
-    &'a <W as GraphWidget>::Row,
-    &'a <W as GraphWidget>::Col,
->;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PreserveCell<A, R, C> {
+pub enum AlignCell {
     Overwrite,
-    Row(A, R),
-    Col(A, C),
+    KeepRow,
+    KeepCol,
 }
-
-pub type WPreserveCell<W> =
-    PreserveCell<<W as GraphWidget>::CellAnchor, <W as GraphWidget>::Row, <W as GraphWidget>::Col>;
-
-pub type WPreserveCellRef<'a, W> = PreserveCell<
-    &'a <W as GraphWidget>::CellAnchor,
-    &'a <W as GraphWidget>::Row,
-    &'a <W as GraphWidget>::Col,
->;
 
 pub trait GraphWidget {
     type Node;
     type PortIdx;
 
-    type CellAnchor;
-    type Row;
-    type Col;
+    type Cell;
 
     type Point;
 
     type Context<'a>;
 
-    fn cursor_cell(&self, cursor: &WCursor<Self>, keep: WPreserveCellRef<Self>) -> WCell<Self>;
+    fn default_cursor(&self) -> WCursor<Self>;
+
+    fn cursor_cell(&self, cursor: &WCursor<Self>) -> Self::Cell;
+
+    fn align_cell(&self, cursor: &WCursor<Self>, cell: &mut Self::Cell, align: AlignCell);
 
     fn nearest_port(
         &self,
         node: &Self::Node,
         side: Side,
-        cell: WCellRef<Self>,
+        cell: &Self::Cell,
     ) -> Option<Self::PortIdx>;
 
     fn step_port_by(
@@ -117,7 +87,11 @@ pub trait GraphWidget {
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)>;
 
-    fn nearest_edge(&self, port: &WSidedPort<Self>, cell: WCellRef<Self>) -> Option<WEdgeCursor<Self>>;
+    fn nearest_edge(
+        &self,
+        port: &WSidedPort<Self>,
+        cell: &Self::Cell,
+    ) -> Option<WEdgeCursor<Self>>;
 
     fn step_edge_by(
         &self,
@@ -138,18 +112,18 @@ pub trait GraphWidget {
 #[must_use]
 pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
     cursor: Option<WCursor<W>>,
-    cell: Option<WCell<W>>,
+    cell: W::Cell,
+
     count: Option<NonZeroU32>,
     mode: Mode,
+    last_action: Option<Action>,
 }
 
 impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
 where
     W::Node: fmt::Debug,
     W::PortIdx: fmt::Debug,
-    W::CellAnchor: fmt::Debug,
-    W::Row: fmt::Debug,
-    W::Col: fmt::Debug,
+    W::Cell: fmt::Debug,
     W::Point: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -158,29 +132,37 @@ where
             cell,
             count,
             mode,
+            last_action,
         } = self;
         f.debug_struct("GraphWidgetDriver")
             .field("cursor", cursor)
             .field("cell", cell)
             .field("count", count)
             .field("mode", mode)
+            .field("last_action", last_action)
             .finish()
     }
 }
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
-    pub fn new(cursor: WCursor<W>) -> Self {
-        Self {
+    pub fn new(widget: &W) -> Self {
+        let cursor = widget.default_cursor();
+        let me = Self {
+            cell: widget.cursor_cell(&cursor),
             cursor: Some(cursor),
             count: None,
-            cell: None,
             mode: Mode::default(),
-        }
+            last_action: None,
+        };
+
+        debug_assert_eq!(me.status(), Status::default());
+
+        me
     }
 
     #[inline]
     pub fn cursor(&self) -> &WCursor<W> { self.cursor.as_ref().unwrap_or_else(|| unreachable!()) }
 
     #[inline]
-    pub fn cursor_cell(&self) -> Option<WCellRef<'_, W>> { Some(self.cell.as_ref()?.as_ref()) }
+    pub fn cursor_cell(&self) -> &W::Cell { &self.cell }
 }

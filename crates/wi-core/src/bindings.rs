@@ -1,6 +1,7 @@
 use crate::{
-    action::{Action, prelude::*},
-    trie::{Acceptor, trie},
+    action::{prelude::*, Action},
+    trie::{trie, Acceptor},
+    Side,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,6 +39,9 @@ trie! {
         C('j', _, M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
         C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
         C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
+
+        C('i', _, M_NONE) => yield JumpToPort(Side::In),
+        C('o', _, M_NONE) => yield JumpToPort(Side::Out),
 
         C('d', _, M_NONE) => Delete @ "d" {
             _ => yield,
@@ -81,9 +85,7 @@ impl Acceptor<Key> for Mode {
     fn accept(&mut self, input: Key) -> Self::Output {
         debug!("Handling keypress");
         match self {
-            Self::Normal { accept, .. } => {
-                accept.accept(input)
-            },
+            Self::Normal { accept, .. } => accept.accept(input),
         }
     }
 }

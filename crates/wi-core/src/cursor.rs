@@ -1,6 +1,7 @@
+use std::borrow::Cow;
+
 use crate::{
-    action::prelude::*, bindings::Step, Cell, CursorUpdate, GraphWidget, Port, PreserveCell, Side,
-    SidedPort, WCellRef,
+    action::prelude::*, bindings::Step, AlignCell, CursorUpdate, GraphWidget, Port, Side, SidedPort,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,20 +119,27 @@ fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
 }
 
 impl EditorAction for actions::StepCursor {
+    #[inline]
+    fn is_silent(&self) -> bool { true }
+
+    fn name(&self) -> Cow<'static, str> {
+        let Self(step) = self;
+        match step {
+            Step::Left => "step left",
+            Step::Down => "step down",
+            Step::Up => "step up",
+            Step::Right => "step right",
+        }
+        .into()
+    }
+
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(step) = self;
         let mut steps = count.map_or(1, NonZero::get);
-        while steps > 0 {
-            let Cell { anchor, row, col } = cx.driver.cell.get_or_insert_with(|| {
-                cx.widget.cursor_cell(
-                    cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
-                    PreserveCell::Overwrite,
-                )
-            });
-            let cell: WCellRef<W> = Cell { anchor, row, col };
+        let cell = &mut cx.driver.cell;
 
+        while steps > 0 {
             let dec;
-            let mut reset_cell = false;
             let cursor = match (
                 cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
                 step,
@@ -177,7 +185,6 @@ impl EditorAction for actions::StepCursor {
                 (Cursor::Edge(e), s @ (Step::Left | Step::Right)) => {
                     let want = horiz_side(s);
                     dec = 1;
-                    reset_cell = true;
                     Cursor::Port(e.into_port(want))
                 },
                 (Cursor::Edge(e), s @ (Step::Down | Step::Up)) => {
@@ -193,14 +200,9 @@ impl EditorAction for actions::StepCursor {
             };
 
             steps = steps.checked_sub(dec).unwrap_or_else(|| unreachable!());
-            Cell {
-                anchor: *anchor,
-                row: *row,
-                col: *col,
-            } = cx.widget.cursor_cell(&cursor, match step {
-                _ if reset_cell => PreserveCell::Overwrite,
-                Step::Left | Step::Right => PreserveCell::Row(anchor, row),
-                Step::Down | Step::Up => PreserveCell::Col(anchor, col),
+            cx.widget.align_cell(&cursor, cell, match step {
+                Step::Left | Step::Right => AlignCell::KeepRow,
+                Step::Down | Step::Up => AlignCell::KeepCol,
             });
             cx.driver.cursor = Some(cursor);
         }
@@ -212,6 +214,12 @@ impl EditorAction for actions::StepCursor {
 }
 
 impl EditorAction for actions::ViewCursor {
+    #[inline]
+    fn name(&self) -> Cow<'static, str> {
+        let Self = self;
+        "view cursor".into()
+    }
+
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
         cx.widget

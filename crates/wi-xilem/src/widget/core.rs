@@ -1,14 +1,15 @@
-use std::{collections::BTreeMap, fmt::Write, mem, num::NonZeroIsize};
+use std::{borrow::Cow, collections::BTreeMap, fmt::Write, mem, num::NonZeroIsize};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, ScrollDelta, StyleProperty, WidgetMut, WidgetPod},
     kurbo::{Affine, Point, Rect, Size, Vec2},
-    widgets::{Flex, Label},
+    theme::TEXT_COLOR,
+    widgets::{Flex, Label, SizedBox},
 };
 use wi_core::{
     status::{ModeKind, Status},
-    Cell, Cursor, CursorUpdate, EdgeCursor, GraphWidget, GraphWidgetDriver, Port, PreserveCell,
-    Side, SidedPort, WCell, WCellRef, WCursor, WEdgeCursor, WPort, WPreserveCellRef, WSidedPort,
+    AlignCell, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
+    WEdgeCursor, WPort, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;
 
@@ -190,7 +191,7 @@ fn edge_midpoint(from_node: &Node, from_port: usize, to_node: &Node, to_port: us
 }
 
 impl GraphCore {
-    pub fn new(graph: &crate::GraphView, driver: &GraphWidgetDriver<Self>) -> Self {
+    pub fn new(graph: &crate::GraphView) -> Self {
         let mut out_edges = graph.out_edge_map();
 
         let nodes: BTreeMap<_, _> = graph
@@ -233,7 +234,7 @@ impl GraphCore {
                 drag: DragHandler::new(),
             },
             zoom: Zoom(0.0),
-            statusbar: RenderedStatus::new(driver.status()).create(),
+            statusbar: RenderedStatus::new(Status::default()).create(),
         }
     }
 
@@ -246,12 +247,6 @@ impl GraphCore {
     fn iview_transform(&self, size: Size) -> Affine {
         Affine::translate(-self.pan.translation(size))
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
-    }
-
-    #[inline]
-    pub fn cell_point(&self, cell: WCellRef<Self>) -> Point {
-        let Cell { anchor, row, col } = cell;
-        anchor.get(self) + Vec2::new(*col, *row)
     }
 
     fn edge_midpoint(&self, from: WPort<Self>, to: WPort<Self>) -> Point {
@@ -350,6 +345,7 @@ impl GraphCore {
 
 struct RenderedStatus {
     mode: &'static str,
+    last_action: Cow<'static, str>,
     chord: String,
 }
 
@@ -358,6 +354,7 @@ impl RenderedStatus {
         let Status {
             count,
             mode,
+            last_action,
             pending_op,
         } = status;
         let mut chord = String::new();
@@ -366,17 +363,31 @@ impl RenderedStatus {
             write!(chord, "{count}").unwrap();
         }
 
+        let last_action = if let Some(action) = last_action {
+            action.name()
+        } else {
+            "".into()
+        };
+
         write!(chord, "{pending_op}").unwrap();
 
         let mode = match mode {
             ModeKind::Normal => "Normal",
         };
 
-        Self { mode, chord }
+        Self {
+            mode,
+            last_action,
+            chord,
+        }
     }
 
     fn create(self) -> WidgetPod<Flex> {
-        let Self { mode, chord } = self;
+        let Self {
+            mode,
+            last_action,
+            chord,
+        } = self;
 
         WidgetPod::new(
             Flex::row()
@@ -384,17 +395,39 @@ impl RenderedStatus {
                 .with_spacer(4.0)
                 .with_child(Label::new(mode).with_style(StyleProperty::FontSize(18.0)))
                 .with_flex_spacer(1.0)
-                .with_child(Label::new(chord).with_style(StyleProperty::FontSize(18.0)))
+                .with_child(
+                    Label::new(last_action)
+                        .with_style(StyleProperty::FontSize(18.0))
+                        .with_brush(TEXT_COLOR.with_alpha(0.6)),
+                )
+                .with_child(
+                    SizedBox::new(Label::new(chord).with_style(StyleProperty::FontSize(18.0)))
+                        .width(50.0),
+                )
                 .with_spacer(4.0),
         )
     }
 
     fn update(self, mut bar: WidgetMut<Flex>) {
-        let Self { mode, chord } = self;
+        let Self {
+            mode,
+            last_action,
+            chord,
+        } = self;
 
         Label::set_text(&mut Flex::child_mut(&mut bar, 1).unwrap().downcast(), mode);
 
-        Label::set_text(&mut Flex::child_mut(&mut bar, 3).unwrap().downcast(), chord);
+        Label::set_text(
+            &mut Flex::child_mut(&mut bar, 3).unwrap().downcast(),
+            last_action,
+        );
+
+        Label::set_text(
+            &mut SizedBox::child_mut(&mut Flex::child_mut(&mut bar, 4).unwrap().downcast())
+                .unwrap()
+                .downcast(),
+            chord,
+        );
     }
 }
 
@@ -406,7 +439,7 @@ pub enum Anchor {
 }
 
 impl Anchor {
-    fn get(self, graph: &GraphCore) -> Point {
+    pub fn get(self, graph: &GraphCore) -> Point {
         match self {
             Self::Fixed => Point::ZERO,
             Self::Node(n) => graph.nodes[&n].pos,
@@ -416,15 +449,19 @@ impl Anchor {
 }
 
 impl GraphWidget for GraphCore {
-    type CellAnchor = Anchor;
-    type Col = f64;
+    type Cell = (Anchor, Vec2);
     type Context<'a> = EventCtx<'a>;
     type Node = usize;
     type Point = Point;
     type PortIdx = usize;
-    type Row = f64;
 
-    fn cursor_cell(&self, cursor: &WCursor<Self>, keep: WPreserveCellRef<Self>) -> WCell<Self> {
+    fn default_cursor(&self) -> WCursor<Self> {
+        self.nodes
+            .first_key_value()
+            .map_or(Cursor::FixedPoint(Point::ZERO), |(&k, _)| Cursor::Node(k))
+    }
+
+    fn cursor_cell(&self, cursor: &WCursor<Self>) -> Self::Cell {
         let (anchor, pos) = match *cursor {
             Cursor::Node(n) => {
                 let node = &self.nodes[&n];
@@ -441,47 +478,43 @@ impl GraphWidget for GraphCore {
             Cursor::FixedPoint(p) => (Anchor::Fixed, p.to_vec2()),
         };
 
-        match keep {
-            PreserveCell::Overwrite => Cell {
-                anchor,
-                row: pos.y,
-                col: pos.x,
-            },
-            PreserveCell::Row(&a, &row) if a == anchor => Cell {
-                anchor,
-                row,
-                col: pos.x,
-            },
-            PreserveCell::Row(a, &r) => Cell {
-                anchor,
-                row: r + a.get(self).y - anchor.get(self).y,
-                col: pos.x,
-            },
-            PreserveCell::Col(&a, &col) if a == anchor => Cell {
-                anchor,
-                row: pos.y,
-                col,
-            },
-            PreserveCell::Col(a, &c) => Cell {
-                anchor,
-                row: pos.y,
-                col: c + a.get(self).x - anchor.get(self).x,
-            },
+        (anchor, pos)
+    }
+
+    fn align_cell(&self, cursor: &WCursor<Self>, cell: &mut Self::Cell, align: AlignCell) {
+        let (anchor, point) = cell;
+        let (new_anchor, mut new) = self.cursor_cell(cursor);
+
+        let offs = || {
+            if new_anchor == *anchor {
+                Vec2::ZERO
+            } else {
+                anchor.get(self) - new_anchor.get(self)
+            }
+        };
+
+        match align {
+            AlignCell::Overwrite => (),
+            AlignCell::KeepRow => new.y = point.y + offs().y,
+            AlignCell::KeepCol => new.x = point.x + offs().x,
         }
+
+        *anchor = new_anchor;
+        *point = new;
     }
 
     fn nearest_port(
         &self,
         n: &Self::Node,
         side: Side,
-        cell: WCellRef<Self>,
+        &(anchor, offs): &Self::Cell,
     ) -> Option<Self::PortIdx> {
         let node = &self.nodes[n];
         let len = match side {
             Side::In => node.in_edges.len(),
             Side::Out => node.out_edges.len(),
         };
-        let pos = self.cell_point(cell);
+        let pos = anchor.get(self) + offs;
 
         let (port, _) = (0..len)
             .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
@@ -513,7 +546,7 @@ impl GraphWidget for GraphCore {
     fn nearest_edge(
         &self,
         port: &WSidedPort<Self>,
-        cell: WCellRef<Self>,
+        &(anchor, offs): &Self::Cell,
     ) -> Option<WEdgeCursor<Self>> {
         let SidedPort(side, port) = *port;
         let node = &self.nodes[&port.0];
@@ -521,7 +554,7 @@ impl GraphWidget for GraphCore {
         let (from, to) = match side {
             Side::In => (node.in_edges[port.1]?, port),
             Side::Out => {
-                let pos = self.cell_point(cell);
+                let pos = anchor.get(self) + offs;
                 (
                     port,
                     node.out_edges[port.1]
