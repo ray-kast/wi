@@ -14,7 +14,7 @@ impl Node {
     pub const PORT_Y_OFFS: f64 = 20.0;
 
     #[inline]
-    fn size(&self) -> Size {
+    pub fn size(&self) -> Size {
         #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
         Size::new(
             128.0,

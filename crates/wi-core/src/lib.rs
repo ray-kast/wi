@@ -9,6 +9,7 @@ pub use crate::{
 };
 use crate::{bindings::Mode, status::Status};
 
+pub mod cell;
 mod action;
 mod bindings;
 mod cursor;

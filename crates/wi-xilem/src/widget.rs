@@ -240,7 +240,7 @@ impl Widget for Graph {
         }
 
         #[cfg(debug_assertions)]
-        self.driver.cursor_cell().debug(&self.core, scene, tf);
+        cell::debug(self.driver.cursor_cell(), &self.core, scene, tf);
 
         if let Some(p) = focus_point {
             scene.fill(
