@@ -187,7 +187,7 @@ impl GraphWidget for GraphCore {
             Side::In => node.in_edges.len(),
             Side::Out => node.out_edges.len(),
         };
-        let pos = cell.point(self);
+        let pos = cell.port_target(self, side);
 
         let (port, _) = (0..len)
             .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
@@ -227,7 +227,7 @@ impl GraphWidget for GraphCore {
         let (from, to) = match side {
             Side::In => (node.in_edges[port.1]?, port),
             Side::Out => {
-                let pos = cell.point(self);
+                let pos = cell.edge_target(self);
                 (
                     port,
                     node.out_edges[port.1]

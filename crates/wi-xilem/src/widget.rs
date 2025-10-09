@@ -113,21 +113,23 @@ impl Graph {
         scene: &mut Scene,
         tf: Affine,
         focused: bool,
-        from: Point,
-        to: Point,
-        bias_upward: bool,
+        from: (&Node, usize),
+        to: (&Node, usize),
     ) {
         scene.stroke(
             &Stroke::new(4.0),
             tf,
-            // TODO: broken
             if ctx.is_focus_target() && focused {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
             } else {
                 OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f)
             },
             None,
-            &Edge::new(from, to, bias_upward),
+            &Edge::new(
+                from.0.port_pos(from.1, Side::Out),
+                to.0.port_pos(to.1, Side::In),
+                from.1 < from.0.out_edges.len() / 2,
+            ),
         );
     }
 }
@@ -208,20 +210,29 @@ impl Widget for Graph {
         for (&node_id, node) in &self.core.nodes {
             for (i, port) in node.in_edges.iter().enumerate() {
                 let Some(port) = port else { continue };
-                let from = &self.core.nodes[&port.0];
-                let from_pos = from.port_pos(port.1, Side::Out);
-                let to_pos = node.port_pos(i, Side::In);
 
-                Self::paint_edge(
-                    ctx,
-                    scene,
-                    tf,
-                    focus_edge.is_some_and(|e| (e.from, e.to) == (*port, Port(node_id, i))),
-                    from_pos,
-                    to_pos,
-                    port.1 < from.out_edges.len() / 2,
-                );
+                if !focus_edge.is_some_and(|e| (e.from, e.to) == (*port, Port(node_id, i))) {
+                    Self::paint_edge(
+                        ctx,
+                        scene,
+                        tf,
+                        false,
+                        (&self.core.nodes[&port.0], port.1),
+                        (node, i),
+                    );
+                }
             }
+        }
+
+        if let Some(e) = focus_edge {
+            Self::paint_edge(
+                ctx,
+                scene,
+                tf,
+                true,
+                (&self.core.nodes[&e.from.0], e.from.1),
+                (&self.core.nodes[&e.to.0], e.to.1),
+            );
         }
 
         for (&id, node) in &self.core.nodes {
@@ -229,16 +240,7 @@ impl Widget for Graph {
         }
 
         #[cfg(debug_assertions)]
-        {
-            let p = self.driver.cursor_cell().point(&self.core);
-            scene.stroke(
-                &Stroke::new(1.0),
-                tf,
-                OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
-                None,
-                &Circle::new(p, 12.0),
-            );
-        }
+        self.driver.cursor_cell().debug(&self.core, scene, tf);
 
         if let Some(p) = focus_point {
             scene.fill(
