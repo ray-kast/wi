@@ -1,4 +1,7 @@
-use std::{borrow::Cow, num::{NonZero, NonZeroU32}};
+use std::{
+    borrow::Cow,
+    num::{NonZero, NonZeroU32},
+};
 
 use tracing::{debug, instrument};
 
@@ -62,9 +65,7 @@ mod imp {
     impl Action {
         #[inline]
         #[must_use]
-        pub fn name(self) -> Cow<'static, str> {
-            EditorAction::name(&self)
-        }
+        pub fn name(self) -> Cow<'static, str> { EditorAction::name(&self) }
     }
 }
 

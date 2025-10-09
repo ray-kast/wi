@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use crate::{GraphWidget, GraphWidgetDriver, action::Action, bindings::Mode, trie::Acceptor};
+use crate::{action::Action, bindings::Mode, trie::Acceptor, GraphWidget, GraphWidgetDriver};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModeKind {

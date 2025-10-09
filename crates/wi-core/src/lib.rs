@@ -58,21 +58,23 @@ pub enum AlignCell {
     KeepCol,
 }
 
+pub trait GraphWidgetCell<W: GraphWidget + ?Sized> {
+    fn of_cursor(widget: &W, cursor: &WCursor<W>) -> Self;
+
+    fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell);
+}
+
 pub trait GraphWidget {
     type Node;
     type PortIdx;
 
-    type Cell;
+    type Cell: GraphWidgetCell<Self>;
 
     type Point;
 
     type Context<'a>;
 
     fn default_cursor(&self) -> WCursor<Self>;
-
-    fn cursor_cell(&self, cursor: &WCursor<Self>) -> Self::Cell;
-
-    fn align_cell(&self, cursor: &WCursor<Self>, cell: &mut Self::Cell, align: AlignCell);
 
     fn nearest_port(
         &self,
@@ -87,11 +89,8 @@ pub trait GraphWidget {
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)>;
 
-    fn nearest_edge(
-        &self,
-        port: &WSidedPort<Self>,
-        cell: &Self::Cell,
-    ) -> Option<WEdgeCursor<Self>>;
+    fn nearest_edge(&self, port: &WSidedPort<Self>, cell: &Self::Cell)
+        -> Option<WEdgeCursor<Self>>;
 
     fn step_edge_by(
         &self,
@@ -148,7 +147,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     pub fn new(widget: &W) -> Self {
         let cursor = widget.default_cursor();
         let me = Self {
-            cell: widget.cursor_cell(&cursor),
+            cell: W::Cell::of_cursor(widget, &cursor),
             cursor: Some(cursor),
             count: None,
             mode: Mode::default(),

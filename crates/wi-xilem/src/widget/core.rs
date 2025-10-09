@@ -1,179 +1,23 @@
-use std::{borrow::Cow, collections::BTreeMap, fmt::Write, mem, num::NonZeroIsize};
+use std::{collections::BTreeMap, mem, num::NonZeroIsize};
 
 use masonry::{
-    core::{EventCtx, PointerInfo, PointerState, ScrollDelta, StyleProperty, WidgetMut, WidgetPod},
+    core::{EventCtx, PointerInfo, PointerState, WidgetPod},
     kurbo::{Affine, Point, Rect, Size, Vec2},
-    theme::TEXT_COLOR,
-    widgets::{Flex, Label, SizedBox},
+    widgets::Flex,
 };
 use wi_core::{
-    status::{ModeKind, Status},
-    AlignCell, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
+    status::Status, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
     WEdgeCursor, WPort, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;
 
-use crate::widget::drag::DragHandler;
-
-#[derive(Debug)]
-pub struct Node {
-    pos: Point,
-    pub in_edges: Vec<Option<WPort<GraphCore>>>,
-    pub out_edges: Vec<Vec<WPort<GraphCore>>>,
-}
-
-impl Node {
-    pub const PORT_Y_OFFS: f64 = 20.0;
-
-    #[inline]
-    fn size(&self) -> Size {
-        #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
-        Size::new(
-            128.0,
-            16.0 + 24.0 * (self.in_edges.len().max(self.out_edges.len()).max(1) as f64),
-        )
-    }
-
-    pub fn rect(&self) -> Rect { Rect::from_origin_size(self.pos, self.size()) }
-
-    #[inline]
-    pub fn port_offs(&self, idx: usize, side: Side) -> Vec2 {
-        #[expect(clippy::cast_precision_loss, reason = "Necessary cast")]
-        {
-            Vec2::new(0.0, Self::PORT_Y_OFFS)
-                + Vec2::new(0.0, 24.0) * idx as f64
-                + f64::from(matches!(side, Side::Out)) * Vec2::new(self.size().width, 0.0)
-        }
-    }
-
-    #[inline]
-    pub fn port_pos(&self, idx: usize, side: Side) -> Point { self.pos + self.port_offs(idx, side) }
-}
-
-const SCROLL_PAGE_LINES: f64 = 10.0;
-const SCROLL_LINE_PX: f64 = 16.0;
-
-fn scroll_pixels(delta: &ScrollDelta) -> Vec2 {
-    match delta {
-        &ScrollDelta::PageDelta(x, y) => Vec2::new(
-            f64::from(x) * SCROLL_PAGE_LINES,
-            f64::from(y) * SCROLL_PAGE_LINES,
-        ),
-        &ScrollDelta::LineDelta(x, y) => Vec2::new(x.into(), y.into()),
-        ScrollDelta::PixelDelta(p) => Vec2::new(p.x / SCROLL_LINE_PX, p.y / SCROLL_LINE_PX),
-    }
-}
-
-#[derive(Debug)]
-pub struct Pan {
-    pan: Vec2,
-    drag: DragHandler<Vec2>,
-}
-
-impl Pan {
-    #[inline]
-    fn translation(&self, size: Size) -> Vec2 { size.to_vec2() * 0.5 - self.pan }
-
-    #[inline]
-    pub fn in_drag(&self) -> bool { self.drag.in_drag() }
-
-    #[inline]
-    pub fn begin_drag(&mut self, pointer: PointerInfo, state: &PointerState) {
-        self.drag.begin_drag(pointer, state, self.pan);
-    }
-
-    #[inline]
-    fn drag_delta(
-        pan: &mut Vec2,
-        zoom: &Zoom,
-        ctx: &mut EventCtx,
-    ) -> impl FnOnce(&Vec2, PhysicalPosition<f64>, PhysicalPosition<f64>) {
-        |&start_pan, from, to| {
-            let delta = ctx.local_position(from) - ctx.local_position(to);
-
-            let prev = mem::replace(pan, start_pan + delta / zoom.scale());
-            if prev != *pan {
-                ctx.request_render();
-            }
-        }
-    }
-
-    #[inline]
-    pub fn update_drag(
-        &mut self,
-        pointer: &PointerInfo,
-        state: &PointerState,
-        zoom: &Zoom,
-        ctx: &mut EventCtx,
-    ) {
-        self.drag
-            .update_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, ctx));
-    }
-
-    #[inline]
-    pub fn complete_drag(
-        &mut self,
-        pointer: &PointerInfo,
-        state: &PointerState,
-        zoom: &Zoom,
-        ctx: &mut EventCtx,
-    ) {
-        self.drag
-            .complete_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, ctx));
-    }
-
-    #[inline]
-    pub fn cancel_drag(&mut self, pointer: Option<&PointerInfo>, ctx: &mut EventCtx) {
-        self.drag.cancel_drag(pointer, |&s| {
-            let prev = mem::replace(&mut self.pan, s);
-            if prev != self.pan {
-                ctx.request_render();
-            }
-        });
-    }
-
-    pub fn scroll(&mut self, delta: &ScrollDelta, transp: bool, zoom: &Zoom, ctx: &mut EventCtx) {
-        let delta = scroll_pixels(delta) / zoom.scale();
-        let delta = if transp {
-            Vec2::new(delta.y, delta.x)
-        } else {
-            delta
-        };
-        let prev = self.pan;
-        self.pan -= delta * SCROLL_LINE_PX;
-        if prev != self.pan {
-            ctx.request_render();
-        }
-    }
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct Zoom(f64);
-
-impl Zoom {
-    fn scale(&self) -> f64 { 1.5_f64.powf(self.0) }
-
-    pub fn scroll(&mut self, delta: &ScrollDelta, ctx: &mut EventCtx) {
-        let delta = scroll_pixels(delta);
-        let primary = if !delta.y.is_finite() || delta.x.abs() > delta.y.abs() {
-            delta.x
-        } else {
-            delta.y
-        };
-
-        let delta =
-            (delta.x * delta.x + delta.y * delta.y).sqrt() * if primary < 0.0 { -1.0 } else { 1.0 };
-
-        let prev = self.0;
-        self.0 += delta;
-
-        #[expect(clippy::float_cmp, reason = "Imprecision fails safe here")]
-        if self.0 != prev {
-            ctx.request_render();
-        }
-    }
-}
+use super::{
+    cell::Cell,
+    drag::DragHandler,
+    node::Node,
+    status::RenderedStatus,
+    view::{Pan, Zoom},
+};
 
 pub struct GraphCore {
     pub nodes: BTreeMap<usize, Node>,
@@ -181,13 +25,6 @@ pub struct GraphCore {
     pub pan: Pan,
     pub zoom: Zoom,
     pub statusbar: WidgetPod<Flex>,
-}
-
-fn edge_midpoint(from_node: &Node, from_port: usize, to_node: &Node, to_port: usize) -> Point {
-    ((from_node.port_pos(from_port, Side::Out).to_vec2()
-        + to_node.port_pos(to_port, Side::In).to_vec2())
-        * 0.5)
-        .to_point()
 }
 
 impl GraphCore {
@@ -229,11 +66,8 @@ impl GraphCore {
         Self {
             nodes,
             node_drag: DragHandler::new(),
-            pan: Pan {
-                pan,
-                drag: DragHandler::new(),
-            },
-            zoom: Zoom(0.0),
+            pan: Pan::new(pan),
+            zoom: Zoom::default(),
             statusbar: RenderedStatus::new(Status::default()).create(),
         }
     }
@@ -248,18 +82,9 @@ impl GraphCore {
         Affine::translate(-self.pan.translation(size))
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
     }
-
-    fn edge_midpoint(&self, from: WPort<Self>, to: WPort<Self>) -> Point {
-        let Port(from_node, from_port) = from;
-        let Port(to_node, to_port) = to;
-
-        let from_node = &self.nodes[&from_node];
-        let to_node = &self.nodes[&to_node];
-
-        edge_midpoint(from_node, from_port, to_node, to_port)
-    }
 }
 
+// Node drag behavior
 impl GraphCore {
     #[inline]
     pub fn in_node_drag(&self) -> bool { self.node_drag.in_drag() }
@@ -343,113 +168,8 @@ impl GraphCore {
     }
 }
 
-struct RenderedStatus {
-    mode: &'static str,
-    last_action: Cow<'static, str>,
-    chord: String,
-}
-
-impl RenderedStatus {
-    fn new(status: Status) -> Self {
-        let Status {
-            count,
-            mode,
-            last_action,
-            pending_op,
-        } = status;
-        let mut chord = String::new();
-
-        if let Some(count) = count {
-            write!(chord, "{count}").unwrap();
-        }
-
-        let last_action = if let Some(action) = last_action {
-            action.name()
-        } else {
-            "".into()
-        };
-
-        write!(chord, "{pending_op}").unwrap();
-
-        let mode = match mode {
-            ModeKind::Normal => "Normal",
-        };
-
-        Self {
-            mode,
-            last_action,
-            chord,
-        }
-    }
-
-    fn create(self) -> WidgetPod<Flex> {
-        let Self {
-            mode,
-            last_action,
-            chord,
-        } = self;
-
-        WidgetPod::new(
-            Flex::row()
-                .gap(8.0)
-                .with_spacer(4.0)
-                .with_child(Label::new(mode).with_style(StyleProperty::FontSize(18.0)))
-                .with_flex_spacer(1.0)
-                .with_child(
-                    Label::new(last_action)
-                        .with_style(StyleProperty::FontSize(18.0))
-                        .with_brush(TEXT_COLOR.with_alpha(0.6)),
-                )
-                .with_child(
-                    SizedBox::new(Label::new(chord).with_style(StyleProperty::FontSize(18.0)))
-                        .width(50.0),
-                )
-                .with_spacer(4.0),
-        )
-    }
-
-    fn update(self, mut bar: WidgetMut<Flex>) {
-        let Self {
-            mode,
-            last_action,
-            chord,
-        } = self;
-
-        Label::set_text(&mut Flex::child_mut(&mut bar, 1).unwrap().downcast(), mode);
-
-        Label::set_text(
-            &mut Flex::child_mut(&mut bar, 3).unwrap().downcast(),
-            last_action,
-        );
-
-        Label::set_text(
-            &mut SizedBox::child_mut(&mut Flex::child_mut(&mut bar, 4).unwrap().downcast())
-                .unwrap()
-                .downcast(),
-            chord,
-        );
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Anchor {
-    Fixed,
-    Node(usize),
-    Edge(WPort<GraphCore>, WPort<GraphCore>),
-}
-
-impl Anchor {
-    pub fn get(self, graph: &GraphCore) -> Point {
-        match self {
-            Self::Fixed => Point::ZERO,
-            Self::Node(n) => graph.nodes[&n].pos,
-            Self::Edge(i, o) => graph.edge_midpoint(i, o),
-        }
-    }
-}
-
 impl GraphWidget for GraphCore {
-    type Cell = (Anchor, Vec2);
+    type Cell = Cell;
     type Context<'a> = EventCtx<'a>;
     type Node = usize;
     type Point = Point;
@@ -461,60 +181,13 @@ impl GraphWidget for GraphCore {
             .map_or(Cursor::FixedPoint(Point::ZERO), |(&k, _)| Cursor::Node(k))
     }
 
-    fn cursor_cell(&self, cursor: &WCursor<Self>) -> Self::Cell {
-        let (anchor, pos) = match *cursor {
-            Cursor::Node(n) => {
-                let node = &self.nodes[&n];
-                (
-                    Anchor::Node(n),
-                    Vec2::new(node.rect().size().width * 0.5, Node::PORT_Y_OFFS),
-                )
-            },
-            Cursor::Port(SidedPort(s, Port(n, p))) => {
-                let node = &self.nodes[&n];
-                (Anchor::Node(n), node.port_pos(p, s) - node.pos)
-            },
-            Cursor::Edge(e) => (Anchor::Edge(e.from, e.to), Vec2::ZERO),
-            Cursor::FixedPoint(p) => (Anchor::Fixed, p.to_vec2()),
-        };
-
-        (anchor, pos)
-    }
-
-    fn align_cell(&self, cursor: &WCursor<Self>, cell: &mut Self::Cell, align: AlignCell) {
-        let (anchor, point) = cell;
-        let (new_anchor, mut new) = self.cursor_cell(cursor);
-
-        let offs = || {
-            if new_anchor == *anchor {
-                Vec2::ZERO
-            } else {
-                anchor.get(self) - new_anchor.get(self)
-            }
-        };
-
-        match align {
-            AlignCell::Overwrite => (),
-            AlignCell::KeepRow => new.y = point.y + offs().y,
-            AlignCell::KeepCol => new.x = point.x + offs().x,
-        }
-
-        *anchor = new_anchor;
-        *point = new;
-    }
-
-    fn nearest_port(
-        &self,
-        n: &Self::Node,
-        side: Side,
-        &(anchor, offs): &Self::Cell,
-    ) -> Option<Self::PortIdx> {
+    fn nearest_port(&self, n: &Self::Node, side: Side, cell: &Self::Cell) -> Option<Self::PortIdx> {
         let node = &self.nodes[n];
         let len = match side {
             Side::In => node.in_edges.len(),
             Side::Out => node.out_edges.len(),
         };
-        let pos = anchor.get(self) + offs;
+        let pos = cell.point(self);
 
         let (port, _) = (0..len)
             .map(|p| (p, node.port_pos(p, side).distance_squared(pos)))
@@ -546,7 +219,7 @@ impl GraphWidget for GraphCore {
     fn nearest_edge(
         &self,
         port: &WSidedPort<Self>,
-        &(anchor, offs): &Self::Cell,
+        cell: &Self::Cell,
     ) -> Option<WEdgeCursor<Self>> {
         let SidedPort(side, port) = *port;
         let node = &self.nodes[&port.0];
@@ -554,7 +227,7 @@ impl GraphWidget for GraphCore {
         let (from, to) = match side {
             Side::In => (node.in_edges[port.1]?, port),
             Side::Out => {
-                let pos = anchor.get(self) + offs;
+                let pos = cell.point(self);
                 (
                     port,
                     node.out_edges[port.1]
@@ -562,7 +235,7 @@ impl GraphWidget for GraphCore {
                         .map(|&p| {
                             (
                                 p,
-                                edge_midpoint(node, port.1, &self.nodes[&p.0], p.1)
+                                node.edge_midpoint(port.1, &self.nodes[&p.0], p.1)
                                     .distance_squared(pos),
                             )
                         })
@@ -596,8 +269,8 @@ impl GraphWidget for GraphCore {
             .map(|&p| {
                 let n = &self.nodes[&p.0];
                 (p, match anchor {
-                    Side::In => edge_midpoint(n, p.1, node, port.1),
-                    Side::Out => edge_midpoint(node, port.1, n, p.1),
+                    Side::In => n.edge_midpoint(p.1, node, port.1),
+                    Side::Out => node.edge_midpoint(port.1, n, p.1),
                 })
             })
             .collect();
@@ -627,14 +300,15 @@ impl GraphWidget for GraphCore {
         match update {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
-                self.pan.pan = match *cursor {
+                self.pan.center_on(match *cursor {
                     Cursor::Node(n) => self.nodes[&n].rect().center(),
                     Cursor::Port(SidedPort(s, Port(n, p))) => self.nodes[&n].port_pos(p, s),
-                    Cursor::Edge(e) => self.edge_midpoint(e.from, e.to),
+                    Cursor::Edge(e) => {
+                        self.nodes[&e.from.0].edge_midpoint(e.from.1, &self.nodes[&e.to.0], e.to.1)
+                    },
                     Cursor::FixedPoint(p) => p,
-                }
-                .to_vec2();
-                self.zoom.0 = 0.0;
+                });
+                self.zoom.reset();
             },
         }
         ctx.request_render();

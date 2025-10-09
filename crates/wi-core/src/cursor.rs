@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
 use crate::{
-    action::prelude::*, bindings::Step, AlignCell, CursorUpdate, GraphWidget, Port, Side, SidedPort,
+    action::prelude::*, bindings::Step, AlignCell, CursorUpdate, GraphWidget, GraphWidgetCell,
+    Port, Side, SidedPort,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -200,7 +201,7 @@ impl EditorAction for actions::StepCursor {
             };
 
             steps = steps.checked_sub(dec).unwrap_or_else(|| unreachable!());
-            cx.widget.align_cell(&cursor, cell, match step {
+            cell.align_to_cursor(cx.widget, &cursor, match step {
                 Step::Left | Step::Right => AlignCell::KeepRow,
                 Step::Down | Step::Up => AlignCell::KeepCol,
             });

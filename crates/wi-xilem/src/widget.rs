@@ -14,14 +14,15 @@ use wi_core::{
     Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
-use self::{
-    core::{GraphCore, Node},
-    edge::Edge,
-};
+use self::{core::GraphCore, edge::Edge, node::Node};
 
+mod cell;
 mod core;
 mod drag;
 mod edge;
+mod node;
+mod status;
+mod view;
 
 #[expect(missing_debug_implementations, reason = "WidgetPod doesn't impl Debug")]
 pub struct Graph {
@@ -224,21 +225,12 @@ impl Widget for Graph {
         }
 
         for (&id, node) in &self.core.nodes {
-            Self::paint_node(
-                ctx,
-                scene,
-                tf,
-                id,
-                node,
-                focus_node.as_ref(),
-                focus_port,
-            );
+            Self::paint_node(ctx, scene, tf, id, node, focus_node.as_ref(), focus_port);
         }
 
         #[cfg(debug_assertions)]
         {
-            let &(anchor, offs) = self.driver.cursor_cell();
-            let p = anchor.get(&self.core) + offs;
+            let p = self.driver.cursor_cell().point(&self.core);
             scene.stroke(
                 &Stroke::new(1.0),
                 tf,
