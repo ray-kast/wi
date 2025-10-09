@@ -45,10 +45,22 @@ pub mod euclidean {
 
     pub type WAnchor<W> = Anchor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
 
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum State {
+        #[default]
+        Init,
+        /// Current cell is for a node cursor
+        Node1,
+        /// Current cell is for a node cursor, and the previous cell was as
+        /// well
+        Node2,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct Cell<Node, PortIdx, Vector> {
         pub saved_port: Option<(Side, Anchor<Node, PortIdx>, Vector)>,
         pub saved_edge: Option<(Anchor<Node, PortIdx>, Vector)>,
+        pub state: State,
         pub anchor: Anchor<Node, PortIdx>,
         pub offset: Vector,
     }
@@ -105,6 +117,7 @@ pub mod euclidean {
                 Cursor::Node(n) => Self {
                     saved_port: None,
                     saved_edge: None,
+                    state: State::Node1,
                     anchor: Anchor::Node(n.clone()),
                     offset: W::ZERO_VEC,
                 },
@@ -113,6 +126,7 @@ pub mod euclidean {
                     Self {
                         saved_port: Some((s, anchor.clone(), W::ZERO_VEC)),
                         saved_edge: None,
+                        state: State::Init,
                         anchor,
                         offset: W::ZERO_VEC,
                     }
@@ -124,6 +138,7 @@ pub mod euclidean {
                     Self {
                         saved_port: None,
                         saved_edge: Some((anchor.clone(), offs)),
+                        state: State::Init,
                         anchor,
                         offset: offs,
                     }
@@ -131,6 +146,7 @@ pub mod euclidean {
                 &Cursor::FixedPoint(p) => Self {
                     saved_port: None,
                     saved_edge: None,
+                    state: State::Init,
                     anchor: Anchor::Fixed,
                     offset: W::point_vec(p),
                 },
@@ -141,6 +157,7 @@ pub mod euclidean {
             let Self {
                 saved_port,
                 saved_edge,
+                state,
                 anchor,
                 offset,
             } = self;
@@ -157,12 +174,26 @@ pub mod euclidean {
                 }
             };
 
-            if let Some(c) = new.saved_port {
-                *saved_port = Some(c);
-            }
+            *state = match (*state, new.state) {
+                (State::Node1 | State::Node2, State::Node1) => State::Node2,
+                (_, s) => s,
+            };
 
-            if let Some(c) = new.saved_edge {
-                *saved_edge = Some(c);
+            if let AlignCell::Overwrite = align {
+                *saved_port = None;
+                *saved_edge = None;
+            } else if let State::Node2 = state
+                && let Cursor::Node(..) = cursor
+            {
+                *saved_port = None;
+            } else {
+                if let Some(c) = new.saved_port {
+                    *saved_port = Some(c);
+                }
+
+                if let Some(c) = new.saved_edge {
+                    *saved_edge = Some(c);
+                }
             }
 
             let (new_x, new_y) = W::vec_coords(new.offset);

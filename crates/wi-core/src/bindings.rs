@@ -40,6 +40,8 @@ trie! {
         C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
         C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
 
+        C('%', _, M_NONE) => yield GoToOpposite,
+
         C('i', _, M_NONE) => yield JumpToPort(Side::In),
         C('o', _, M_NONE) => yield JumpToPort(Side::Out),
 
@@ -52,6 +54,7 @@ trie! {
 
         C('z', _, M_NONE) => View @ "z" {
             . => yield ViewCursor,
+            C('d', _, M_NONE) => yield ToggleDebug,
             _ => yield,
         },
         N(K::Home, M_NONE) => yield ViewCursor,

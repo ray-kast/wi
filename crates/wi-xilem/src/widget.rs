@@ -239,8 +239,9 @@ impl Widget for Graph {
             Self::paint_node(ctx, scene, tf, id, node, focus_node.as_ref(), focus_port);
         }
 
-        #[cfg(debug_assertions)]
-        cell::debug(self.driver.cursor_cell(), &self.core, scene, tf);
+        if self.driver.view_debug() {
+            cell::debug(self.driver.cursor_cell(), &self.core, scene, tf);
+        }
 
         if let Some(p) = focus_point {
             scene.fill(

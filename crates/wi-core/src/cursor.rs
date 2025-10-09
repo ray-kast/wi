@@ -82,6 +82,9 @@ pub mod actions {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct ViewCursor;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct GoToOpposite;
 }
 
 #[inline]
@@ -119,6 +122,42 @@ fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
     (steps, dec)
 }
 
+fn move_cursor<W: GraphWidget + ?Sized>(
+    count: Option<NonZeroU32>,
+    cx: ActionCx<W>,
+    mut f: impl FnMut(
+        NonZeroU32,
+        WCursor<W>,
+        &W,
+        &W::Cell,
+    ) -> (Option<NonZeroU32>, WCursor<W>, AlignCell),
+) -> bool {
+    let cell = &mut cx.driver.cell;
+
+    let any = run_with_count(count, |steps| {
+        let (dec, cursor, align) = f(
+            steps,
+            cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
+            cx.widget,
+            cell,
+        );
+
+        if dec.is_some() {
+            cell.align_to_cursor(cx.widget, &cursor, align);
+        }
+        cx.driver.cursor = Some(cursor);
+
+        dec
+    });
+
+    if any {
+        cx.widget
+            .update_cursor(CursorUpdate::Move, cx.driver.cursor(), cx.inner);
+    }
+
+    any
+}
+
 impl EditorAction for actions::StepCursor {
     #[inline]
     fn is_silent(&self) -> bool { true }
@@ -136,37 +175,31 @@ impl EditorAction for actions::StepCursor {
 
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(step) = self;
-        let mut steps = count.map_or(1, NonZero::get);
-        let cell = &mut cx.driver.cell;
 
-        while steps > 0 {
+        move_cursor(count, cx, |steps, cursor, widget, cell| {
             let dec;
-            let cursor = match (
-                cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
-                step,
-            ) {
+            let next = match (cursor, step) {
                 (Cursor::Node(n), s @ (Step::Left | Step::Right)) => {
                     let side = horiz_side(s);
-                    if let Some(p) = cx.widget.nearest_port(&n, side, cell) {
+                    if let Some(p) = widget.nearest_port(&n, side, cell) {
                         dec = 1;
                         Cursor::Port(SidedPort(side, Port(n, p)))
                     } else {
-                        dec = steps;
+                        dec = 0;
                         Cursor::Node(n)
                     }
                 },
                 (c @ Cursor::Node(_), Step::Down | Step::Up) => {
-                    dec = steps;
+                    dec = steps.get();
                     c
                 },
                 (Cursor::Port(p), s @ (Step::Left | Step::Right)) => {
-                    let side = horiz_side(s);
-                    if side == p.0 {
-                        if let Some(e) = cx.widget.nearest_edge(&p, cell) {
+                    if horiz_side(s) == p.0 {
+                        if let Some(e) = widget.nearest_edge(&p, cell) {
                             dec = 1;
                             Cursor::Edge(e)
                         } else {
-                            dec = steps;
+                            dec = 0;
                             Cursor::Port(p)
                         }
                     } else {
@@ -175,40 +208,41 @@ impl EditorAction for actions::StepCursor {
                     }
                 },
                 (Cursor::Port(p), s @ (Step::Down | Step::Up)) => {
-                    let count;
-                    (count, dec) = signed_steps(vert_is_down(s), steps);
-                    if let Some((_, i)) = cx.widget.step_port_by(&p, count) {
+                    let (count, n) = signed_steps(vert_is_down(s), steps.get());
+
+                    if let Some((_, i)) = widget.step_port_by(&p, count) {
+                        dec = n;
                         Cursor::Port(SidedPort(p.0, Port(p.1 .0, i)))
                     } else {
+                        dec = 0;
                         Cursor::Port(p)
                     }
                 },
                 (Cursor::Edge(e), s @ (Step::Left | Step::Right)) => {
-                    let want = horiz_side(s);
                     dec = 1;
-                    Cursor::Port(e.into_port(want))
+                    Cursor::Port(e.into_port(horiz_side(s)))
                 },
                 (Cursor::Edge(e), s @ (Step::Down | Step::Up)) => {
-                    let count;
-                    (count, dec) = signed_steps(vert_is_down(s), steps);
-                    if let Some((_, p)) = cx.widget.step_edge_by(&e, count) {
+                    let (count, n) = signed_steps(vert_is_down(s), steps.get());
+
+                    if let Some((_, p)) = widget.step_edge_by(&e, count) {
+                        dec = n;
                         Cursor::Edge(e.step(p))
                     } else {
+                        dec = 0;
                         Cursor::Edge(e)
                     }
                 },
                 (Cursor::FixedPoint(_p), _s) => todo!(),
             };
 
-            steps = steps.checked_sub(dec).unwrap_or_else(|| unreachable!());
-            cell.align_to_cursor(cx.widget, &cursor, match step {
+            let align = match step {
                 Step::Left | Step::Right => AlignCell::KeepRow,
                 Step::Down | Step::Up => AlignCell::KeepCol,
-            });
-            cx.driver.cursor = Some(cursor);
-        }
-        cx.widget
-            .update_cursor(CursorUpdate::Move, cx.driver.cursor(), cx.inner);
+            };
+
+            (NonZero::new(dec), next, align)
+        });
 
         true
     }
@@ -225,6 +259,65 @@ impl EditorAction for actions::ViewCursor {
         let None = count else { return false };
         cx.widget
             .update_cursor(CursorUpdate::CenterInView, cx.driver.cursor(), cx.inner);
+        true
+    }
+}
+
+impl EditorAction for actions::GoToOpposite {
+    #[inline]
+    fn name(&self) -> Cow<'static, str> { "go to opposite".into() }
+
+    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        move_cursor(count, cx, |count, cursor, widget, _| {
+            let dec;
+            let next = match (count.get(), cursor) {
+                (_, Cursor::Node(n)) => {
+                    // HACK: pattern types wen eta ;;
+                    let c = Cursor::Node(n);
+                    let cell = W::Cell::of_cursor(widget, &c);
+                    let Cursor::Node(n) = c else { unreachable!() };
+                    if let Some(p) = widget.nearest_port(&n, Side::In, &cell) {
+                        dec = 1;
+                        Cursor::Port(SidedPort(Side::In, Port(n, p)))
+                    } else {
+                        dec = 0;
+                        Cursor::Node(n)
+                    }
+                },
+                (k, c @ (Cursor::Port(..) | Cursor::Edge(..))) if k % 2 == 0 => {
+                    dec = k;
+                    c
+                },
+                (k, Cursor::Port(p)) => {
+                    let c = Cursor::Port(p);
+                    let cell = W::Cell::of_cursor(widget, &c);
+                    let Cursor::Port(mut p) = c else {
+                        unreachable!();
+                    };
+                    if let Some(p2) = widget.nearest_port(&p.1 .0, p.0.flip(), &cell) {
+                        p.0 = p.0.flip();
+                        p.1 .1 = p2;
+                        dec = k;
+                        Cursor::Port(p)
+                    } else {
+                        dec = 0;
+                        Cursor::Port(p)
+                    }
+                },
+                (k, Cursor::Edge(mut e)) => {
+                    e.anchor = e.anchor.flip();
+                    dec = k;
+                    Cursor::Edge(e)
+                },
+                (_, c @ Cursor::FixedPoint(..)) => {
+                    dec = 0;
+                    c
+                },
+            };
+
+            (NonZero::new(dec), next, AlignCell::Overwrite)
+        });
+
         true
     }
 }

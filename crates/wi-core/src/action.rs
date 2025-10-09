@@ -12,6 +12,25 @@ pub mod prelude {
 
     pub use super::{actions::*, ActionCx, EditorAction};
     pub use crate::{cursor::actions::*, jump::actions::*};
+
+    pub fn run_with_count(
+        count: Option<NonZeroU32>,
+        mut f: impl FnMut(NonZeroU32) -> Option<NonZeroU32>,
+    ) -> bool {
+        let mut count = count.map_or(1, NonZero::get);
+        let mut any = false;
+
+        while let Some(n) = NonZero::new(count) {
+            let Some(dec) = f(n) else { break };
+
+            any = true;
+            count = count
+                .checked_sub(dec.get())
+                .unwrap_or_else(|| unreachable!());
+        }
+
+        any
+    }
 }
 
 pub struct ActionCx<'a, 'w, W: GraphWidget + ?Sized> {
@@ -48,7 +67,9 @@ mod imp {
         // Local
         Nop,
         PushCount,
+        ToggleDebug,
         Unhandled,
+        GoToOpposite,
 
         // From cursor
         StepCursor,
@@ -77,6 +98,9 @@ mod actions {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct PushCount(pub char);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ToggleDebug;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Unhandled;
@@ -111,6 +135,22 @@ impl EditorAction for actions::PushCount {
             .checked_mul(10)
             .and_then(|c| c.checked_add(digit))
             .and_then(NonZero::new);
+        true
+    }
+}
+
+impl EditorAction for actions::ToggleDebug {
+    #[inline]
+    fn is_silent(&self) -> bool { true }
+
+    #[inline]
+    fn name(&self) -> Cow<'static, str> { "toggle debug".into() }
+
+    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        let None = count else { return false };
+
+        cx.driver.debug = !cx.driver.debug;
+
         true
     }
 }

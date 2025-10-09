@@ -27,6 +27,7 @@ pub struct Status {
     pub mode: ModeKind,
     pub last_action: Option<Action>,
     pub pending_op: &'static str,
+    pub debug: bool,
 }
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
@@ -36,6 +37,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
             mode: self.mode.status(),
             last_action: self.last_action,
             pending_op: self.mode.pending_op(),
+            debug: self.debug,
         }
     }
 }

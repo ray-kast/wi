@@ -9,9 +9,9 @@ pub use crate::{
 };
 use crate::{bindings::Mode, status::Status};
 
-pub mod cell;
 mod action;
 mod bindings;
+pub mod cell;
 mod cursor;
 mod jump;
 mod keyboard;
@@ -70,7 +70,6 @@ pub trait GraphWidget {
     type PortIdx;
 
     type Cell: GraphWidgetCell<Self>;
-
     type Point;
 
     type Context<'a>;
@@ -113,6 +112,7 @@ pub trait GraphWidget {
 pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
     cursor: Option<WCursor<W>>,
     cell: W::Cell,
+    debug: bool,
 
     count: Option<NonZeroU32>,
     mode: Mode,
@@ -130,6 +130,7 @@ where
         let Self {
             cursor,
             cell,
+            debug,
             count,
             mode,
             last_action,
@@ -137,6 +138,7 @@ where
         f.debug_struct("GraphWidgetDriver")
             .field("cursor", cursor)
             .field("cell", cell)
+            .field("debug", debug)
             .field("count", count)
             .field("mode", mode)
             .field("last_action", last_action)
@@ -150,6 +152,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         let me = Self {
             cell: W::Cell::of_cursor(widget, &cursor),
             cursor: Some(cursor),
+            debug: false,
             count: None,
             mode: Mode::default(),
             last_action: None,
@@ -165,4 +168,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[inline]
     pub fn cursor_cell(&self) -> &W::Cell { &self.cell }
+
+    #[inline]
+    pub fn view_debug(&self) -> bool { self.debug }
 }

@@ -20,6 +20,7 @@ impl RenderedStatus {
             mode,
             last_action,
             pending_op,
+            debug: _,
         } = status;
         let mut chord = String::new();
 

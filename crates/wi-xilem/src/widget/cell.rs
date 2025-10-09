@@ -4,11 +4,11 @@ use masonry::{
     vello::Scene,
 };
 use wi_core::{
-    Port, SidedPort, cell::euclidean::{Anchor, GraphEuclidean, WAnchor}
+    cell::euclidean::{Anchor, GraphEuclidean, State, WAnchor},
+    Port, SidedPort,
 };
 
-use super::core::GraphCore;
-use super::node::Node;
+use super::{core::GraphCore, node::Node};
 
 impl GraphEuclidean for GraphCore {
     type Scalar = f64;
@@ -18,10 +18,13 @@ impl GraphEuclidean for GraphCore {
 
     #[inline]
     fn vec_coords(v: Self::Vector) -> (Self::Scalar, Self::Scalar) { v.into() }
+
     #[inline]
     fn point_coords(p: Self::Point) -> (Self::Scalar, Self::Scalar) { p.into() }
+
     #[inline]
     fn vec(coords: (Self::Scalar, Self::Scalar)) -> Self::Vector { coords.into() }
+
     #[inline]
     fn point_vec(p: Self::Point) -> Self::Vector { p.to_vec2() }
 
@@ -32,9 +35,7 @@ impl GraphEuclidean for GraphCore {
                 let node = &self.nodes[&n];
                 node.pos + Vec2::new(node.size().width * 0.5, Node::PORT_Y_OFFS)
             },
-            Anchor::Port(SidedPort(s, Port(n, p))) => {
-                self.nodes[&n].port_pos(p, s)
-            },
+            Anchor::Port(SidedPort(s, Port(n, p))) => self.nodes[&n].port_pos(p, s),
             Anchor::Edge(i, o) => {
                 let Port(from_node, from_port) = i;
                 let Port(to_node, to_port) = o;
@@ -50,52 +51,41 @@ impl GraphEuclidean for GraphCore {
 
 pub type Cell = wi_core::cell::euclidean::WCell<GraphCore>;
 
-#[cfg_attr(not(debug_assertions), expect(unused_method))]
 pub fn debug(cell: &Cell, graph: &GraphCore, scene: &mut Scene, tf: Affine) {
     let Cell {
         saved_port,
         saved_edge,
+        state,
         anchor,
         offset,
     } = *cell;
 
+    let brush = match state {
+        State::Init => OpaqueColor::from_rgb8(0x00, 0xff, 0x00),
+        State::Node1 => OpaqueColor::from_rgb8(0xff, 0xff, 0x00),
+        State::Node2 => OpaqueColor::from_rgb8(0xff, 0x7f, 0x00),
+    }
+    .with_alpha(0.5);
+
     if let Some((_, anchor, offset)) = saved_port {
         let p = graph.anchor_point(&anchor) + offset;
-        scene.stroke(
-            &Stroke::new(1.0),
-            tf,
-            OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
-            None,
-            &Circle::new(p, 8.0),
-        );
+        scene.stroke(&Stroke::new(1.0), tf, brush, None, &Circle::new(p, 8.0));
     }
 
     if let Some((anchor, offset)) = saved_edge {
         let p = graph.anchor_point(&anchor) + offset;
-        scene.stroke(
-            &Stroke::new(1.0),
-            tf,
-            OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
-            None,
-            &Circle::new(p, 8.0),
-        );
+        scene.stroke(&Stroke::new(1.0), tf, brush, None, &Circle::new(p, 8.0));
     }
 
     let p = graph.anchor_point(&anchor) + offset;
-    scene.stroke(
-        &Stroke::new(1.0),
-        tf,
-        OpaqueColor::from_rgb8(0x00, 0xff, 0x00).with_alpha(0.5),
-        None,
-        &[
-            PathEl::MoveTo(p + Vec2::new(-36.0, 0.0)),
-            PathEl::LineTo(p + Vec2::new(-24.0, 0.0)),
-            PathEl::MoveTo(p + Vec2::new(24.0, 0.0)),
-            PathEl::LineTo(p + Vec2::new(36.0, 0.0)),
-            PathEl::MoveTo(p + Vec2::new(0.0, -36.0)),
-            PathEl::LineTo(p + Vec2::new(0.0, -24.0)),
-            PathEl::MoveTo(p + Vec2::new(0.0, 24.0)),
-            PathEl::LineTo(p + Vec2::new(0.0, 36.0)),
-        ],
-    );
+    scene.stroke(&Stroke::new(1.0), tf, brush, None, &[
+        PathEl::MoveTo(p + Vec2::new(-36.0, 0.0)),
+        PathEl::LineTo(p + Vec2::new(-24.0, 0.0)),
+        PathEl::MoveTo(p + Vec2::new(24.0, 0.0)),
+        PathEl::LineTo(p + Vec2::new(36.0, 0.0)),
+        PathEl::MoveTo(p + Vec2::new(0.0, -36.0)),
+        PathEl::LineTo(p + Vec2::new(0.0, -24.0)),
+        PathEl::MoveTo(p + Vec2::new(0.0, 24.0)),
+        PathEl::LineTo(p + Vec2::new(0.0, 36.0)),
+    ]);
 }
