@@ -6,7 +6,7 @@ use masonry::{
     widgets::Flex,
 };
 use wi_core::{
-    status::Status, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
+    Status, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
     WEdgeCursor, WPort, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;

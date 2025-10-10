@@ -5,7 +5,7 @@ use masonry::{
     theme::TEXT_COLOR,
     widgets::{Flex, Label, SizedBox},
 };
-use wi_core::status::{ModeKind, Status};
+use wi_core::{ModeKind, Status};
 
 pub struct RenderedStatus {
     mode: &'static str,
@@ -37,6 +37,7 @@ impl RenderedStatus {
         write!(chord, "{pending_op}").unwrap();
 
         let mode = match mode {
+            ModeKind::Connect => "Connect",
             ModeKind::Normal => "Normal",
         };
 

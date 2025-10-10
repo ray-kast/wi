@@ -3,11 +3,13 @@ use std::{
     num::{NonZeroIsize, NonZeroU32},
 };
 
+use crate::bindings::Mode;
 pub use crate::{
     action::Action,
+    bindings::ModeKind,
     cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor},
+    status::Status,
 };
-use crate::{bindings::Mode, status::Status};
 
 mod action;
 mod bindings;
@@ -16,7 +18,7 @@ mod cursor;
 mod jump;
 mod keyboard;
 pub mod modifiers;
-pub mod status;
+mod status;
 mod trie;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

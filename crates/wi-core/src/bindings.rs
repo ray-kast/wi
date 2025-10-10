@@ -1,13 +1,13 @@
 use crate::{
     action::{prelude::*, Action},
-    trie::{trie, Acceptor},
+    modifiers::M_TCTL,
+    trie::trie,
     Side,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
-    /// Tuple of (char code, shift, modifiers \\ shift)
-    Char(char, bool, Modifiers),
+    Char(char, Modifiers),
     Named(NamedKey, Modifiers),
 }
 
@@ -21,74 +21,172 @@ pub enum Step {
     Right,
 }
 
-use tracing::debug;
 use Key::{Char as C, Named as N};
 use NamedKey as K;
 
-use crate::modifiers::M_NONE;
+#[allow(clippy::wildcard_imports)]
+use crate::modifiers::*;
 
 trie! {
     #[advance = Nop]
+    #[fallthrough = Fallthrough]
+    pub fn ConnectAccept(k: Key) -> Action {
+        _ => yield,
+    }
+
+    #[advance = Nop]
+    #[fallthrough = Fallthrough]
     pub fn NormalAccept(k: Key) -> Action {
-        C(c @ '1'..='9', _, M_NONE) => Count(PushCount(c)) @ "" {
-            C(c @ '0'..='9', _, M_NONE) => Count(PushCount(c)) { .. },
+        C(c @ '1'..='9', M_NONE) => Count(PushCount(c)) @ "" {
+            C(c @ '0'..='9', M_NONE) => Count(PushCount(c)) { .. },
             _ => continue,
         },
 
-        C('h', _, M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
-        C('j', _, M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
-        C('k', _, M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
-        C('l', _, M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
+        C('c', M_SHIFT) => yield SetMode(ModeKind::Connect),
 
-        C('%', _, M_NONE) => yield GoToOpposite,
-
-        C('i', _, M_NONE) => yield JumpToPort(Side::In),
-        C('o', _, M_NONE) => yield JumpToPort(Side::Out),
-
-        C('d', _, M_NONE) => Delete @ "d" {
+        C('d', M_NONE) => Delete @ "d" {
             _ => yield,
         },
-        C('g', _, M_NONE) => Go @ "g" {
+        C('g', M_NONE) => Go @ "g" {
             _ => yield,
         },
 
-        C('z', _, M_NONE) => View @ "z" {
+        _ => yield,
+    }
+
+    #[advance = Nop]
+    #[fallthrough = Fallthrough]
+    pub fn GestureAccept(k: Key) -> Action {
+        C('h', M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
+        C('j', M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
+        C('k', M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
+        C('l', M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
+
+        C('%', M_NONE) => yield GoToOpposite,
+
+        C('i', M_NONE) => yield JumpToPort(Side::In),
+        C('o', M_NONE) => yield JumpToPort(Side::Out),
+
+        _ => yield,
+    }
+
+    #[advance = Nop]
+    pub fn GlobalAccept(k: Key) -> Action {
+        N(K::Escape, M_NONE) | C('[', M_TCTL) | C('c', M_TCTL) => yield SetMode(ModeKind::Normal),
+
+        C('z', M_NONE) => View @ "z" {
             . => yield ViewCursor,
-            C('d', _, M_NONE) => yield ToggleDebug,
+            C('d', M_NONE) => yield ToggleDebug,
             _ => yield,
         },
         N(K::Home, M_NONE) => yield ViewCursor,
+
         _ => yield,
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Mode {
-    Normal { accept: NormalAccept },
-}
+mod mode {
+    use tracing::debug;
 
-impl Default for Mode {
-    #[inline]
-    fn default() -> Self {
-        Self::Normal {
-            accept: NormalAccept::default(),
+    use super::{ConnectAccept, Key, GestureAccept, GlobalAccept, NormalAccept};
+    use crate::{Action, trie::{Acceptor, accept::Fallthrough}};
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq)]
+    pub struct Mode {
+        accept: Fallthrough<State, GlobalAccept>,
+    }
+
+    impl Acceptor<Key> for Mode {
+        type Output = Action;
+
+        #[inline]
+        fn pending_op(&self) -> &'static str { self.accept.pending_op() }
+
+        #[inline]
+        fn accept(&mut self, input: Key) -> Self::Output { self.accept.accept(input) }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum State {
+        Connect {
+            accept: Fallthrough<ConnectAccept, GestureAccept>,
+        },
+        Normal {
+            accept: Fallthrough<NormalAccept, GestureAccept>,
+        },
+    }
+
+    impl Default for State {
+        #[inline]
+        fn default() -> Self {
+            Self::Normal {
+                accept: Fallthrough::default(),
+            }
         }
+    }
+
+    impl Mode {
+        pub fn change(&mut self, to: ModeKind) -> bool {
+            if self.kind() == to {
+                return false;
+            }
+
+            self.accept.inner = match to {
+                ModeKind::Connect => State::Connect {
+                    accept: Fallthrough::default(),
+                },
+                ModeKind::Normal => State::Normal {
+                    accept: Fallthrough::default(),
+                },
+            };
+
+            true
+        }
+
+        #[inline]
+        pub fn kind(self) -> ModeKind {
+            match self.accept.inner {
+                State::Connect { .. } => ModeKind::Connect,
+                State::Normal { .. } => ModeKind::Normal,
+            }
+        }
+    }
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ModeKind {
+        Connect,
+        #[default]
+        Normal,
+    }
+
+    impl From<Mode> for ModeKind {
+        #[inline]
+        fn from(value: Mode) -> Self { value.kind() }
+    }
+
+    impl Acceptor<Key> for State {
+        type Output = Action;
+
+        fn pending_op(&self) -> &'static str {
+            match self {
+                Self::Connect { accept, .. } => accept.pending_op(),
+                Self::Normal { accept, .. } => accept.pending_op(),
+            }
+        }
+
+        fn accept(&mut self, input: Key) -> Self::Output {
+            debug!("Handling keypress");
+            match self {
+                Self::Connect { accept, .. } => accept.accept(input),
+                Self::Normal { accept, .. } => accept.accept(input),
+            }
+        }
+    }
+
+    #[test]
+    fn mode_default_kind() {
+        assert_eq!(Mode::default().kind(), ModeKind::default());
     }
 }
 
-impl Acceptor<Key> for Mode {
-    type Output = Action;
-
-    fn pending_op(&self) -> &'static str {
-        match self {
-            Self::Normal { accept, .. } => accept.pending_op(),
-        }
-    }
-
-    fn accept(&mut self, input: Key) -> Self::Output {
-        debug!("Handling keypress");
-        match self {
-            Self::Normal { accept, .. } => accept.accept(input),
-        }
-    }
-}
+pub use mode::*;

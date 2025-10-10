@@ -51,7 +51,7 @@ impl GraphEuclidean for GraphCore {
 
 pub type Cell = wi_core::cell::euclidean::WCell<GraphCore>;
 
-pub fn debug(cell: &Cell, graph: &GraphCore, scene: &mut Scene, tf: Affine) {
+pub fn debug(cell: &Cell, graph: &GraphCore, scene: &mut Scene, tf: Affine, weight: f64) {
     let Cell {
         saved_port,
         saved_edge,
@@ -67,18 +67,20 @@ pub fn debug(cell: &Cell, graph: &GraphCore, scene: &mut Scene, tf: Affine) {
     }
     .with_alpha(0.5);
 
+    let stroke = Stroke::new(weight);
+
     if let Some((_, anchor, offset)) = saved_port {
         let p = graph.anchor_point(&anchor) + offset;
-        scene.stroke(&Stroke::new(1.0), tf, brush, None, &Circle::new(p, 8.0));
+        scene.stroke(&stroke, tf, brush, None, &Circle::new(p, 8.0));
     }
 
     if let Some((anchor, offset)) = saved_edge {
         let p = graph.anchor_point(&anchor) + offset;
-        scene.stroke(&Stroke::new(1.0), tf, brush, None, &Circle::new(p, 8.0));
+        scene.stroke(&stroke, tf, brush, None, &Circle::new(p, 8.0));
     }
 
     let p = graph.anchor_point(&anchor) + offset;
-    scene.stroke(&Stroke::new(1.0), tf, brush, None, &[
+    scene.stroke(&stroke, tf, brush, None, &[
         PathEl::MoveTo(p + Vec2::new(-36.0, 0.0)),
         PathEl::LineTo(p + Vec2::new(-24.0, 0.0)),
         PathEl::MoveTo(p + Vec2::new(24.0, 0.0)),

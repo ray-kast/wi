@@ -42,7 +42,14 @@ impl Graph {
         }
     }
 
-    fn paint_port(ctx: &mut PaintCtx, scene: &mut Scene, tf: Affine, pos: Point, focused: bool) {
+    fn paint_port(
+        ctx: &mut PaintCtx,
+        scene: &mut Scene,
+        tf: Affine,
+        pos: Point,
+        focused: bool,
+        weight: f64,
+    ) {
         scene.fill(
             Fill::NonZero,
             tf,
@@ -52,7 +59,7 @@ impl Graph {
                 OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
             },
             None,
-            &Circle::new(pos, 6.0),
+            &Circle::new(pos, 6.0 * weight.clamp(1.0, 2.0)),
         );
     }
 
@@ -60,12 +67,13 @@ impl Graph {
         ctx: &mut PaintCtx,
         scene: &mut Scene,
         tf: Affine,
-        id: usize,
-        node: &Node,
+        node: (usize, &Node),
         focus_node: Option<&usize>,
         focus_port: Option<(Side, &WPort<GraphCore>)>,
+        weight: f64,
     ) {
-        let rect = node.rect();
+        let (id, node) = node;
+        let rect = node.rect().to_rounded_rect(4.0 * weight.clamp(0.5, 2.0));
 
         scene.fill(
             Fill::NonZero,
@@ -76,7 +84,7 @@ impl Graph {
         );
 
         scene.stroke(
-            &Stroke::new(4.0),
+            &Stroke::new(4.0 * weight.max(0.5)),
             tf,
             if ctx.is_focus_target() && focus_node == Some(&id) {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
@@ -94,6 +102,7 @@ impl Graph {
                 tf,
                 node.port_pos(port, Side::In),
                 focus_port == Some((Side::In, &Port(id, port))),
+                weight,
             );
         }
 
@@ -104,6 +113,7 @@ impl Graph {
                 tf,
                 node.port_pos(port, Side::Out),
                 focus_port == Some((Side::Out, &Port(id, port))),
+                weight,
             );
         }
     }
@@ -115,9 +125,10 @@ impl Graph {
         focused: bool,
         from: (&Node, usize),
         to: (&Node, usize),
+        weight: f64,
     ) {
         scene.stroke(
-            &Stroke::new(4.0),
+            &Stroke::new(4.0 * weight.max(1.0)),
             tf,
             if ctx.is_focus_target() && focused {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
@@ -128,6 +139,7 @@ impl Graph {
             &Edge::new(
                 from.0.port_pos(from.1, Side::Out),
                 to.0.port_pos(to.1, Side::In),
+                24.0,
                 from.1 < from.0.out_edges.len() / 2,
             ),
         );
@@ -172,6 +184,7 @@ impl Widget for Graph {
         scene: &mut Scene,
     ) {
         let tf = self.core.view_transform(ctx.size());
+        let weight = self.core.zoom.scale().recip();
 
         scene.push_layer(BlendMode::default(), 1.0, Affine::IDENTITY, &self.viewport);
 
@@ -219,6 +232,7 @@ impl Widget for Graph {
                         false,
                         (&self.core.nodes[&port.0], port.1),
                         (node, i),
+                        weight,
                     );
                 }
             }
@@ -232,15 +246,24 @@ impl Widget for Graph {
                 true,
                 (&self.core.nodes[&e.from.0], e.from.1),
                 (&self.core.nodes[&e.to.0], e.to.1),
+                weight,
             );
         }
 
         for (&id, node) in &self.core.nodes {
-            Self::paint_node(ctx, scene, tf, id, node, focus_node.as_ref(), focus_port);
+            Self::paint_node(
+                ctx,
+                scene,
+                tf,
+                (id, node),
+                focus_node.as_ref(),
+                focus_port,
+                weight,
+            );
         }
 
         if self.driver.view_debug() {
-            cell::debug(self.driver.cursor_cell(), &self.core, scene, tf);
+            cell::debug(self.driver.cursor_cell(), &self.core, scene, tf, weight);
         }
 
         if let Some(p) = focus_point {
@@ -253,7 +276,7 @@ impl Widget for Graph {
                     OpaqueColor::from_rgb8(0xb3, 0xb3, 0xb3)
                 },
                 None,
-                &Circle::new(p, 6.0),
+                &Circle::new(p, 6.0 * weight),
             );
         }
 

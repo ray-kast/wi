@@ -1,7 +1,7 @@
 use keyboard_types::{Modifiers, NamedKey as K};
 use tracing::instrument;
 
-use crate::{bindings::Key, modifiers::M_SHIFT, trie::Acceptor, GraphWidget, GraphWidgetDriver};
+use crate::{bindings::Key, trie::Acceptor, GraphWidget, GraphWidgetDriver};
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     #[inline]
@@ -23,7 +23,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(state = ?self.mode),
+        fields(mode = ?self.mode.kind(), pending = ?self.mode.pending_op()),
     )]
     #[inline]
     pub fn handle_char_input(
@@ -34,12 +34,10 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         ctx: &mut W::Context<'_>,
     ) -> bool {
         self.mutate_check(widget, ctx, |me, widget, ctx| {
-            let shift = mods.contains(M_SHIFT);
-            let mods = mods.difference(M_SHIFT);
             let mut any_handled = false;
 
-            for char in chars.chars() {
-                let action = me.mode.accept(Key::Char(char, shift, mods));
+            for char in chars.to_lowercase().chars() {
+                let action = me.mode.accept(Key::Char(char, *mods));
                 any_handled |= me.process_action(widget, action, ctx);
             }
 
@@ -49,7 +47,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(state = ?self.mode),
+        fields(mode = ?self.mode.kind(), pending = ?self.mode.pending_op()),
     )]
     #[inline]
     pub fn handle_named_keypress(

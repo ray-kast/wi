@@ -61,15 +61,17 @@ impl Iterator for EdgeIter {
 pub struct Edge {
     from: Point,
     to: Point,
+    radius: f64,
     bias_upward: bool,
 }
 
 impl Edge {
     #[inline]
-    pub fn new(from: Point, to: Point, bias_upward: bool) -> Self {
+    pub fn new(from: Point, to: Point, radius: f64, bias_upward: bool) -> Self {
         Self {
             from,
             to,
+            radius,
             bias_upward,
         }
     }
@@ -82,6 +84,7 @@ impl Edge {
             from,
             to,
             bias_upward,
+            ..
         } = *self;
         let radii = Vec2::new(radius, radius);
 
@@ -121,7 +124,7 @@ impl Edge {
         let Self {
             from,
             to,
-            bias_upward: _,
+            ..
         } = *self;
         let radii = Vec2::new(radius, radius);
 
@@ -154,16 +157,14 @@ impl Edge {
     }
 
     pub fn arcs(&self) -> (Arc, Arc) {
-        const RADIUS: f64 = 24.0;
-
-        let Self { from, to, .. } = *self;
+        let Self { from, to, radius, .. } = *self;
 
         let radius = {
             let delta = to - from;
 
             (delta.x.abs() / 2.0)
                 .max(delta.y.abs() / 4.0)
-                .clamp(0.0, RADIUS)
+                .clamp(0.0, radius)
         };
 
         if to.x < from.x && (to.y - from.y).abs() < 3.0 * radius {

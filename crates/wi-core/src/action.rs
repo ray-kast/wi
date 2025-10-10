@@ -5,7 +5,7 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{GraphWidget, GraphWidgetDriver};
+use crate::{bindings::ModeKind, GraphWidget, GraphWidgetDriver};
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
@@ -45,7 +45,7 @@ mod imp {
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
-    use crate::GraphWidget;
+    use crate::{trie::accept::IsFallthrough, GraphWidget};
 
     #[enum_dispatch]
     pub trait EditorAction {
@@ -65,18 +65,25 @@ mod imp {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Action {
         // Local
+        Fallthrough,
         Nop,
         PushCount,
+        SetMode,
         ToggleDebug,
         Unhandled,
-        GoToOpposite,
 
         // From cursor
+        GoToOpposite,
         StepCursor,
         ViewCursor,
 
         // From jump
         JumpToPort,
+    }
+
+    impl IsFallthrough for Action {
+        #[inline]
+        fn is_fallthrough(&self) -> bool { matches!(self, Self::Fallthrough(..)) }
     }
 
     impl Default for Action {
@@ -93,11 +100,19 @@ mod imp {
 pub use imp::{Action, EditorAction};
 
 mod actions {
+    use crate::bindings::ModeKind;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct Fallthrough;
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Nop;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct PushCount(pub char);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct SetMode(pub ModeKind);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct ToggleDebug;
@@ -106,12 +121,25 @@ mod actions {
     pub struct Unhandled;
 }
 
+impl EditorAction for actions::Fallthrough {
+    #[inline]
+    fn is_silent(&self) -> bool { unreachable!() }
+
+    #[inline]
+    fn name(&self) -> Cow<'static, str> { unreachable!() }
+
+    #[inline]
+    fn process<W: GraphWidget + ?Sized>(self, _: Option<NonZeroU32>, _: ActionCx<W>) -> bool {
+        unreachable!()
+    }
+}
+
 impl EditorAction for actions::Nop {
     #[inline]
     fn is_silent(&self) -> bool { true }
 
     #[inline]
-    fn name(&self) -> Cow<'static, str> { "nop".into() }
+    fn name(&self) -> Cow<'static, str> { "<nop>".into() }
 
     #[inline]
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
@@ -136,6 +164,27 @@ impl EditorAction for actions::PushCount {
             .and_then(|c| c.checked_add(digit))
             .and_then(NonZero::new);
         true
+    }
+}
+
+impl EditorAction for actions::SetMode {
+    #[inline]
+    fn is_silent(&self) -> bool { true }
+
+    fn name(&self) -> Cow<'static, str> {
+        let Self(m) = self;
+        match m {
+            ModeKind::Connect => "connect mode",
+            ModeKind::Normal => "normal mode",
+        }
+        .into()
+    }
+
+    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        let Self(m) = self;
+        let None = count else { return false };
+
+        cx.driver.mode.change(m)
     }
 }
 
@@ -170,8 +219,8 @@ impl EditorAction for actions::Unhandled {
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     #[instrument(
-        skip(self, widget, ctx),
-        fields(count = ?self.count),
+        skip(self, widget, action, ctx),
+        fields(action = action.name().as_ref(), count = ?self.count),
     )]
     pub fn process_action(
         &mut self,

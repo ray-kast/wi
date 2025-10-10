@@ -1,4 +1,4 @@
-pub trait Acceptor<T> {
+pub trait Acceptor<T>: Default + PartialEq {
     type Output;
 
     fn pending_op(&self) -> &'static str;
@@ -6,9 +6,73 @@ pub trait Acceptor<T> {
     fn accept(&mut self, input: T) -> Self::Output;
 }
 
+pub mod accept {
+    use super::Acceptor;
+
+    pub trait IsFallthrough {
+        fn is_fallthrough(&self) -> bool;
+    }
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Hash)]
+    pub struct Fallthrough<A, F> {
+        pub through_with: F,
+        pub inner: A,
+    }
+
+    impl<
+            A: Acceptor<T, Output: IsFallthrough>,
+            F: Acceptor<T, Output: Into<A::Output>>,
+            T: Clone,
+        > Acceptor<T> for Fallthrough<A, F>
+    {
+        type Output = A::Output;
+
+        #[inline]
+        fn pending_op(&self) -> &'static str {
+            if self.through_with == F::default() {
+                self.inner.pending_op()
+            } else {
+                self.through_with.pending_op()
+            }
+        }
+
+        fn accept(&mut self, input: T) -> Self::Output {
+            if self.through_with == F::default() {
+                let out = self.inner.accept(input.clone());
+
+                if !out.is_fallthrough() {
+                    return out;
+                }
+            }
+
+            self.through_with.accept(input).into()
+        }
+    }
+}
+
 macro_rules! trie {
+    (#[$($attr:tt)*] $($rest:tt)*) => {
+        trie!(@parse_attr (fallthrough: (), advance: ()) #[$($attr)*] $($rest)*);
+    };
+
+    ($vis:vis fn $($rest:tt)*) => {
+        trie!(@items (fallthrough: (), advance: ()) $vis fn $($rest)*);
+    };
+
+    (@parse_attr (fallthrough: $fall:tt, advance: ()) #[advance = $adv:expr] $($rest:tt)*) => {
+        trie!(@parse_attr (fallthrough: $fall, advance: ($adv)) $($rest)*);
+    };
+
+    (@parse_attr (fallthrough: (), advance: $adv:tt) #[fallthrough = $fall:expr] $($rest:tt)*) => {
+        trie!(@parse_attr (fallthrough: ($fall), advance: $adv) $($rest)*);
+    };
+
+    (@parse_attr $attrs:tt $($rest:tt)*) => {
+        trie!(@items $attrs $($rest)*);
+    };
+
     (
-        $(#[advance = $adv:expr])?
+        @items (fallthrough: ($($fall:expr)?), advance: ($($adv:expr)?))
         $vis:vis fn $ty:ident($in_id:ident: $inp:ty) -> $out:ty { $($body:tt)* }
         $($($trail:tt)+)?
     ) => {
@@ -22,7 +86,7 @@ macro_rules! trie {
             }
 
             fn accept(&mut self, $in_id: $inp) -> $out {
-                trie!(@accept ($ty self $in_id ($($adv)?)) {} Start () { $($body)* })
+                trie!(@accept ($ty self $in_id ($($fall)?, $($adv)?)) {} Start () { $($body)* })
             }
         }
 
@@ -143,7 +207,7 @@ macro_rules! trie {
     } $($vars:tt)*) => {
         trie!(@accept $args {
             $($body)*
-            (Self::$var, $bind) => (Self::Start, trie!(@accept_out $args true $($out)?)),
+            (Self::$var, $bind) => (Self::Start, trie!(@accept_out $args $var true $($out)?)),
         } $var $cur_bind { $($($rest)*)? } $($vars)*)
     };
 
@@ -153,7 +217,7 @@ macro_rules! trie {
     } $($vars:tt)*) => {
         trie!(@accept $args {
             $($body)*
-            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args false $($out)?)),
+            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args $var false $($out)?)),
         } $var $cur_bind { $($($rest)*)? } $($vars)*)
     };
 
@@ -163,7 +227,7 @@ macro_rules! trie {
     } $($vars:tt)*) => {
         trie!(@accept $args {
             $($body)*
-            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args false $($out)?)),
+            (Self::$var, $bind) => (Self::$next, trie!(@accept_out $args $var false $($out)?)),
         } $var $cur_bind { $($($rest)*)? } $next ($bind) { $($state)* } $($vars)*)
     };
 
@@ -171,19 +235,26 @@ macro_rules! trie {
         trie!(@accept $args $body $($vars)*)
     };
 
-    (@accept_out ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) false) => {
-        trie!(@accept_out ($ty $self $inp ()) true $($adv)?)
+    (@accept_out ($ty:ident $self:ident $inp:ident ($(fall:expr)?, $($adv:expr)?)) $var:ident false) => {
+        trie!(@accept_out _ $($adv)?)
     };
-    (@accept_out $args:tt true) => { Self::Output::default() };
-    (@accept_out $args:tt $leaf:ident $out:expr) => { Self::Output::from($out) };
+    (@accept_out ($ty:ident $self:ident $inp:ident ($($fall:expr)?, $($adv:expr)?)) Start true) => {
+        trie!(@accept_out _ $($fall)?)
+    };
+    (@accept_out $args:tt $var:ident $leaf:ident $($rest:tt)*) => {
+        trie!(@accept_out _ $($rest)*)
+    };
 
-    (@accept_continue ($ty:ident $self:ident $inp:ident ($($adv:expr)?))) => {
+    (@accept_out _) => { Self::Output::default() };
+    (@accept_out _ $out:expr) => { Self::Output::from($out) };
+
+    (@accept_continue ($ty:ident $self:ident $inp:ident $adv:tt)) => {
         { *$self = Self::Start; continue }
     };
 
-    (@accept ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) {}) => { match (*$self, $inp) {} };
+    (@accept ($ty:ident $self:ident $inp:ident $adv:tt) {}) => { match (*$self, $inp) {} };
 
-    (@accept ($ty:ident $self:ident $inp:ident ($($adv:expr)?)) { $($body:tt)+ }) => {
+    (@accept ($ty:ident $self:ident $inp:ident $adv:tt) { $($body:tt)+ }) => {
         loop {
             let (next, out) = match (*$self, $inp) { $($body)* };
             *$self = next;

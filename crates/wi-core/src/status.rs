@@ -1,25 +1,6 @@
 use std::num::NonZero;
 
-use crate::{action::Action, bindings::Mode, trie::Acceptor, GraphWidget, GraphWidgetDriver};
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ModeKind {
-    #[default]
-    Normal,
-}
-
-#[test]
-fn mode_default_kind() {
-    assert_eq!(Mode::default().status(), ModeKind::default());
-}
-
-impl Mode {
-    pub fn status(self) -> ModeKind {
-        match self {
-            Self::Normal { .. } => ModeKind::Normal,
-        }
-    }
-}
+use crate::{action::Action, bindings::ModeKind, trie::Acceptor, GraphWidget, GraphWidgetDriver};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Status {
@@ -34,7 +15,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     pub fn status(&self) -> Status {
         Status {
             count: self.count.map(NonZero::get),
-            mode: self.mode.status(),
+            mode: self.mode.kind(),
             last_action: self.last_action,
             pending_op: self.mode.pending_op(),
             debug: self.debug,
