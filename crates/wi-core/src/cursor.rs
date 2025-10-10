@@ -124,7 +124,7 @@ fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
 
 fn move_cursor<W: GraphWidget + ?Sized>(
     count: Option<NonZeroU32>,
-    cx: ActionCx<W>,
+    cx: &mut ActionCx<W>,
     mut f: impl FnMut(
         NonZeroU32,
         WCursor<W>,
@@ -173,10 +173,14 @@ impl EditorAction for actions::StepCursor {
         .into()
     }
 
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process<W: GraphWidget + ?Sized>(
+        self,
+        count: Option<NonZeroU32>,
+        mut cx: ActionCx<W>,
+    ) -> bool {
         let Self(step) = self;
 
-        move_cursor(count, cx, |steps, cursor, widget, cell| {
+        move_cursor(count, &mut cx, |steps, cursor, widget, cell| {
             let dec;
             let next = match (cursor, step) {
                 (Cursor::Node(n), s @ (Step::Left | Step::Right)) => {
@@ -267,8 +271,12 @@ impl EditorAction for actions::GoToOpposite {
     #[inline]
     fn name(&self) -> Cow<'static, str> { "go to opposite".into() }
 
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        move_cursor(count, cx, |count, cursor, widget, _| {
+    fn process<W: GraphWidget + ?Sized>(
+        self,
+        count: Option<NonZeroU32>,
+        mut cx: ActionCx<W>,
+    ) -> bool {
+        move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;
             let next = match (count.get(), cursor) {
                 (_, Cursor::Node(n)) => {

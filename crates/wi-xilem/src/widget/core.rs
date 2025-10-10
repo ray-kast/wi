@@ -6,8 +6,8 @@ use masonry::{
     widgets::Flex,
 };
 use wi_core::{
-    status::Status, AlignCell, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side,
-    SidedPort, WCursor, WEdgeCursor, WPort, WSidedPort,
+    status::Status, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
+    WEdgeCursor, WPort, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;
 
@@ -181,12 +181,7 @@ impl GraphWidget for GraphCore {
             .map_or(Cursor::FixedPoint(Point::ZERO), |(&k, _)| Cursor::Node(k))
     }
 
-    fn nearest_port(
-        &self,
-        n: &Self::Node,
-        side: Side,
-        cell: &Self::Cell,
-    ) -> Option<Self::PortIdx> {
+    fn nearest_port(&self, n: &Self::Node, side: Side, cell: &Self::Cell) -> Option<Self::PortIdx> {
         let node = &self.nodes[n];
         let len = match side {
             Side::In => node.in_edges.len(),
