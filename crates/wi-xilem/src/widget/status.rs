@@ -2,6 +2,7 @@ use std::{borrow::Cow, fmt::Write};
 
 use masonry::{
     core::{StyleProperty, WidgetMut, WidgetPod},
+    peniko::color::{AlphaColor, Srgb},
     theme::TEXT_COLOR,
     widgets::{Flex, Label, SizedBox},
 };
@@ -9,6 +10,7 @@ use wi_core::{ModeKind, Status};
 
 pub struct RenderedStatus {
     mode: &'static str,
+    mode_brush: AlphaColor<Srgb>,
     last_action: Cow<'static, str>,
     chord: String,
 }
@@ -36,6 +38,7 @@ impl RenderedStatus {
 
         write!(chord, "{pending_op}").unwrap();
 
+        let default_mode = matches!(mode, ModeKind::Normal);
         let mode = match mode {
             ModeKind::Connect => "Connect",
             ModeKind::Normal => "Normal",
@@ -43,6 +46,7 @@ impl RenderedStatus {
 
         Self {
             mode,
+            mode_brush: TEXT_COLOR.with_alpha(if default_mode { 0.4 } else { 1.0 }),
             last_action,
             chord,
         }
@@ -51,6 +55,7 @@ impl RenderedStatus {
     pub fn create(self) -> WidgetPod<Flex> {
         let Self {
             mode,
+            mode_brush,
             last_action,
             chord,
         } = self;
@@ -59,7 +64,11 @@ impl RenderedStatus {
             Flex::row()
                 .gap(8.0)
                 .with_spacer(4.0)
-                .with_child(Label::new(mode).with_style(StyleProperty::FontSize(18.0)))
+                .with_child(
+                    Label::new(mode)
+                        .with_style(StyleProperty::FontSize(18.0))
+                        .with_brush(mode_brush),
+                )
                 .with_flex_spacer(1.0)
                 .with_child(
                     Label::new(last_action)
@@ -77,11 +86,17 @@ impl RenderedStatus {
     pub fn update(self, mut bar: WidgetMut<Flex>) {
         let Self {
             mode,
+            mode_brush,
             last_action,
             chord,
         } = self;
 
-        Label::set_text(&mut Flex::child_mut(&mut bar, 1).unwrap().downcast(), mode);
+        {
+            let mut lbl = Flex::child_mut(&mut bar, 1).unwrap();
+            let mut lbl = lbl.downcast();
+            Label::set_text(&mut lbl, mode);
+            Label::set_brush(&mut lbl, mode_brush);
+        }
 
         Label::set_text(
             &mut Flex::child_mut(&mut bar, 3).unwrap().downcast(),

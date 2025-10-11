@@ -37,11 +37,6 @@ trie! {
     #[advance = Nop]
     #[fallthrough = Fallthrough]
     pub fn NormalAccept(k: Key) -> Action {
-        C(c @ '1'..='9', M_NONE) => Count(PushCount(c)) @ "" {
-            C(c @ '0'..='9', M_NONE) => Count(PushCount(c)) { .. },
-            _ => continue,
-        },
-
         C('c', M_SHIFT) => yield SetMode(ModeKind::Connect),
 
         C('d', M_NONE) => Delete @ "d" {
@@ -55,7 +50,6 @@ trie! {
     }
 
     #[advance = Nop]
-    #[fallthrough = Fallthrough]
     pub fn GestureAccept(k: Key) -> Action {
         C('h', M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
         C('j', M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
@@ -71,8 +65,14 @@ trie! {
     }
 
     #[advance = Nop]
+    #[fallthrough = Fallthrough]
     pub fn GlobalAccept(k: Key) -> Action {
-        N(K::Escape, M_NONE) | C('[', M_TCTL) | C('c', M_TCTL) => yield SetMode(ModeKind::Normal),
+        C(c @ '1'..='9', M_NONE) => Count(PushCount(c)) @ "" {
+            C(c @ '0'..='9', M_NONE) => Count(PushCount(c)) { .. },
+            _ => continue,
+        },
+
+        N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL) => yield SetMode(ModeKind::Normal),
 
         C('z', M_NONE) => View @ "z" {
             . => yield ViewCursor,
@@ -88,12 +88,18 @@ trie! {
 mod mode {
     use tracing::debug;
 
-    use super::{ConnectAccept, Key, GestureAccept, GlobalAccept, NormalAccept};
-    use crate::{Action, trie::{Acceptor, accept::Fallthrough}};
+    use super::{ConnectAccept, GestureAccept, GlobalAccept, Key, NormalAccept};
+    use crate::{
+        trie::{
+            accept::{Fallthrough, Overlay},
+            Acceptor,
+        },
+        Action,
+    };
 
     #[derive(Debug, Default, Clone, Copy, PartialEq)]
     pub struct Mode {
-        accept: Fallthrough<State, GlobalAccept>,
+        accept: Overlay<State, GlobalAccept>,
     }
 
     impl Acceptor<Key> for Mode {

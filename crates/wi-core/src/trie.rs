@@ -14,6 +14,34 @@ pub mod accept {
     }
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Hash)]
+    pub struct Overlay<A, B> {
+        pub over: B,
+        pub inner: A,
+    }
+
+    impl<
+            A: Acceptor<T, Output: Into<B::Output>>,
+            B: Acceptor<T, Output: IsFallthrough>,
+            T: Clone,
+        > Acceptor<T> for Overlay<A, B>
+    {
+        type Output = B::Output;
+
+        #[inline]
+        fn pending_op(&self) -> &'static str { self.inner.pending_op() }
+
+        #[inline]
+        fn accept(&mut self, input: T) -> Self::Output {
+            let out = self.over.accept(input.clone());
+            if out.is_fallthrough() {
+                self.inner.accept(input).into()
+            } else {
+                out
+            }
+        }
+    }
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Hash)]
     pub struct Fallthrough<A, F> {
         pub through_with: F,
         pub inner: A,
