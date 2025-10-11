@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use masonry::kurbo::Point;
+use wi_core::Port;
 use xilem::{
     core::{View, ViewMarker},
     Pod, ViewCtx,
 };
 
-use crate::{widget, Port};
+use crate::widget;
 
 pub fn graph() -> GraphView {
     GraphView {
@@ -18,7 +19,7 @@ pub fn graph() -> GraphView {
 #[derive(Debug)]
 pub(super) struct Node {
     pub(super) pos: Point,
-    pub(super) in_edges: Vec<Option<Port>>,
+    pub(super) in_edges: Vec<Option<Port<usize, usize>>>,
     pub(super) out_arity: usize,
 }
 
@@ -62,7 +63,7 @@ impl GraphView {
     pub fn edge(&mut self, from: (usize, usize), to: (usize, usize)) -> &mut Self {
         let (node, port) = from;
         assert!(port < self.nodes[&node].out_arity, "Invalid edge from-port");
-        let from = Port { node, port };
+        let from = Port(node, port);
 
         let (node, port) = to;
         assert!(
@@ -75,7 +76,7 @@ impl GraphView {
         self
     }
 
-    pub(crate) fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port>>> {
+    pub(crate) fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port<usize, usize>>>> {
         self.nodes.iter().fold(
             self.nodes
                 .iter()
@@ -85,8 +86,8 @@ impl GraphView {
                 for (port, edge) in v.in_edges.iter().enumerate() {
                     let Some(edge) = edge else { continue };
 
-                    h.get_mut(&edge.node).unwrap_or_else(|| unreachable!())[edge.port]
-                        .push(Port { node, port });
+                    h.get_mut(&edge.0).unwrap_or_else(|| unreachable!())[edge.1]
+                        .push(Port(node, port));
                 }
 
                 h

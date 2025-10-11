@@ -6,7 +6,7 @@ use masonry::{
     widgets::Flex,
 };
 use wi_core::{
-    Status, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, WCursor,
+    Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, WCursor,
     WEdgeCursor, WPort, WSidedPort,
 };
 use xilem::dpi::PhysicalPosition;
@@ -37,17 +37,8 @@ impl GraphCore {
             .map(|(&i, n)| {
                 (i, Node {
                     pos: n.pos,
-                    in_edges: n
-                        .in_edges
-                        .iter()
-                        .map(|p| p.map(|p| Port(p.node, p.port)))
-                        .collect(),
-                    out_edges: out_edges
-                        .remove(&i)
-                        .unwrap_or_else(|| unreachable!())
-                        .into_iter()
-                        .map(|p| p.into_iter().map(|p| Port(p.node, p.port)).collect())
-                        .collect(),
+                    in_edges: n.in_edges.clone(),
+                    out_edges: out_edges.remove(&i).unwrap_or_else(|| unreachable!()),
                 })
             })
             .collect();

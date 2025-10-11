@@ -56,7 +56,7 @@ trie! {
         C('k', M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
         C('l', M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
 
-        C('%', M_NONE) => yield GoToOpposite,
+        C('%', M_SHIFT) => yield GoToOpposite,
 
         C('i', M_NONE) => yield JumpToPort(Side::In),
         C('o', M_NONE) => yield JumpToPort(Side::Out),
@@ -97,36 +97,23 @@ mod mode {
         Action,
     };
 
-    #[derive(Debug, Default, Clone, Copy, PartialEq)]
-    pub struct Mode {
-        accept: Overlay<State, GlobalAccept>,
-    }
-
-    impl Acceptor<Key> for Mode {
-        type Output = Action;
-
-        #[inline]
-        fn pending_op(&self) -> &'static str { self.accept.pending_op() }
-
-        #[inline]
-        fn accept(&mut self, input: Key) -> Self::Output { self.accept.accept(input) }
-    }
+    type WithGlobal<A> = Overlay<A, GlobalAccept>;
 
     #[derive(Debug, Clone, Copy, PartialEq)]
-    enum State {
+    pub enum Mode {
         Connect {
-            accept: Fallthrough<ConnectAccept, GestureAccept>,
+            accept: WithGlobal<Fallthrough<ConnectAccept, GestureAccept>>,
         },
         Normal {
-            accept: Fallthrough<NormalAccept, GestureAccept>,
+            accept: WithGlobal<Fallthrough<NormalAccept, GestureAccept>>,
         },
     }
 
-    impl Default for State {
+    impl Default for Mode {
         #[inline]
         fn default() -> Self {
             Self::Normal {
-                accept: Fallthrough::default(),
+                accept: Overlay::default(),
             }
         }
     }
@@ -137,12 +124,12 @@ mod mode {
                 return false;
             }
 
-            self.accept.inner = match to {
-                ModeKind::Connect => State::Connect {
-                    accept: Fallthrough::default(),
+            *self = match to {
+                ModeKind::Connect => Self::Connect {
+                    accept: Overlay::default(),
                 },
-                ModeKind::Normal => State::Normal {
-                    accept: Fallthrough::default(),
+                ModeKind::Normal => Self::Normal {
+                    accept: Overlay::default(),
                 },
             };
 
@@ -151,9 +138,9 @@ mod mode {
 
         #[inline]
         pub fn kind(self) -> ModeKind {
-            match self.accept.inner {
-                State::Connect { .. } => ModeKind::Connect,
-                State::Normal { .. } => ModeKind::Normal,
+            match self {
+                Self::Connect { .. } => ModeKind::Connect,
+                Self::Normal { .. } => ModeKind::Normal,
             }
         }
     }
@@ -170,7 +157,7 @@ mod mode {
         fn from(value: Mode) -> Self { value.kind() }
     }
 
-    impl Acceptor<Key> for State {
+    impl Acceptor<Key> for Mode {
         type Output = Action;
 
         fn pending_op(&self) -> &'static str {

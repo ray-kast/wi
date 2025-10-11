@@ -121,11 +121,7 @@ impl Edge {
     fn arcs_scurve(&self, radius: f64) -> (Arc, Arc) {
         const ANGLE_OFFS: f64 = PI * -0.5;
 
-        let Self {
-            from,
-            to,
-            ..
-        } = *self;
+        let Self { from, to, .. } = *self;
         let radii = Vec2::new(radius, radius);
 
         let sign = (to.y - from.y).signum();
@@ -157,7 +153,9 @@ impl Edge {
     }
 
     pub fn arcs(&self) -> (Arc, Arc) {
-        let Self { from, to, radius, .. } = *self;
+        let Self {
+            from, to, radius, ..
+        } = *self;
 
         let radius = {
             let delta = to - from;
