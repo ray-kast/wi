@@ -158,10 +158,7 @@ fn move_cursor<W: GraphWidget + ?Sized>(
     any
 }
 
-impl EditorAction for actions::StepCursor {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
+impl EditorMotion for actions::StepCursor {
     fn name(&self) -> Cow<'static, str> {
         let Self(step) = self;
         match step {
@@ -173,10 +170,11 @@ impl EditorAction for actions::StepCursor {
         .into()
     }
 
-    fn process<W: GraphWidget + ?Sized>(
+    fn process<W: GraphWidget + ?Sized, S: Selection>(
         self,
         count: Option<NonZeroU32>,
         mut cx: ActionCx<W>,
+        selection: S,
     ) -> bool {
         let Self(step) = self;
 
@@ -267,14 +265,15 @@ impl EditorAction for actions::ViewCursor {
     }
 }
 
-impl EditorAction for actions::GoToOpposite {
+impl EditorMotion for actions::GoToOpposite {
     #[inline]
     fn name(&self) -> Cow<'static, str> { "go to opposite".into() }
 
-    fn process<W: GraphWidget + ?Sized>(
+    fn process<W: GraphWidget + ?Sized, S: Selection>(
         self,
         count: Option<NonZeroU32>,
         mut cx: ActionCx<W>,
+        selection: S,
     ) -> bool {
         move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;

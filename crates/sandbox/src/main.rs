@@ -27,6 +27,7 @@ fn main() {
     let attrs = Window::default_attributes()
         .with_title("wi")
         .with_min_inner_size(LogicalSize::new(525.0, 350.0))
+        .with_inner_size(LogicalSize::new(810.0, 540.0))
         .with_resizable(true);
     app.run_windowed_in(EventLoop::with_user_event(), attrs)
         .unwrap();

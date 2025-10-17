@@ -1,5 +1,5 @@
 use crate::{
-    action::{prelude::*, Action},
+    action::{prelude::*, Action, Motion},
     modifiers::M_TCTL,
     trie::trie,
     Side,
@@ -50,7 +50,7 @@ trie! {
     }
 
     #[advance = Nop]
-    pub fn GestureAccept(k: Key) -> Action {
+    pub fn MotionAccept(k: Key) -> Motion {
         C('h', M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
         C('j', M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
         C('k', M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
@@ -88,7 +88,7 @@ trie! {
 mod mode {
     use tracing::debug;
 
-    use super::{ConnectAccept, GestureAccept, GlobalAccept, Key, NormalAccept};
+    use super::{ConnectAccept, GlobalAccept, Key, MotionAccept, NormalAccept};
     use crate::{
         trie::{
             accept::{Fallthrough, Overlay},
@@ -102,10 +102,10 @@ mod mode {
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
         Connect {
-            accept: WithGlobal<Fallthrough<ConnectAccept, GestureAccept>>,
+            accept: WithGlobal<Fallthrough<ConnectAccept, MotionAccept>>,
         },
         Normal {
-            accept: WithGlobal<Fallthrough<NormalAccept, GestureAccept>>,
+            accept: WithGlobal<Fallthrough<NormalAccept, MotionAccept>>,
         },
     }
 

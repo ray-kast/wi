@@ -9,7 +9,7 @@ pub mod actions {
     pub struct JumpToPort(pub Side);
 }
 
-impl EditorAction for actions::JumpToPort {
+impl EditorMotion for actions::JumpToPort {
     fn name(&self) -> Cow<'static, str> {
         let Self(side) = self;
         match side {
@@ -19,7 +19,12 @@ impl EditorAction for actions::JumpToPort {
         .into()
     }
 
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process<W: GraphWidget + ?Sized, S: Selection>(
+        self,
+        count: Option<NonZeroU32>,
+        cx: ActionCx<W>,
+        selection: S,
+    ) -> bool {
         let None = count else { return false };
 
         true

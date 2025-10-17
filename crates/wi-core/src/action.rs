@@ -5,13 +5,17 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{bindings::ModeKind, GraphWidget, GraphWidgetDriver};
+use crate::{bindings::ModeKind, selection::Selection, GraphWidget, GraphWidgetDriver};
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
 
-    pub use super::{actions::*, ActionCx, EditorAction};
-    pub use crate::{cursor::actions::*, jump::actions::*};
+    pub use super::{actions::*, ActionCx, EditorAction, EditorMotion};
+    pub use crate::{
+        cursor::actions::*,
+        jump::actions::*,
+        selection::{Selection, SelectionExt},
+    };
 
     pub fn run_with_count(
         count: Option<NonZeroU32>,
@@ -39,13 +43,28 @@ pub struct ActionCx<'a, 'w, W: GraphWidget + ?Sized> {
     pub inner: &'a mut W::Context<'w>,
 }
 
+impl<'w, W: GraphWidget + ?Sized> ActionCx<'_, 'w, W> {
+    #[inline]
+    pub fn reborrow<'b>(&'b mut self) -> ActionCx<'b, 'w, W> {
+        ActionCx {
+            widget: &mut *self.widget,
+            driver: &mut *self.driver,
+            inner: &mut *self.inner,
+        }
+    }
+}
+
 mod imp {
     use std::borrow::Cow;
 
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
-    use crate::{trie::accept::IsFallthrough, GraphWidget};
+    use crate::{
+        selection::{NullSelection, Selection},
+        trie::accept::IsFallthrough,
+        GraphWidget,
+    };
 
     #[enum_dispatch]
     pub trait EditorAction {
@@ -66,6 +85,7 @@ mod imp {
     pub enum Action {
         // Local
         Fallthrough,
+        Motion,
         Nop,
         PushCount,
         SetMode,
@@ -73,12 +93,7 @@ mod imp {
         Unhandled,
 
         // From cursor
-        GoToOpposite,
-        StepCursor,
         ViewCursor,
-
-        // From jump
-        JumpToPort,
     }
 
     impl IsFallthrough for Action {
@@ -87,6 +102,7 @@ mod imp {
     }
 
     impl Default for Action {
+        #[inline]
         fn default() -> Self { Self::Unhandled(Unhandled) }
     }
 
@@ -95,9 +111,56 @@ mod imp {
         #[must_use]
         pub fn name(self) -> Cow<'static, str> { EditorAction::name(&self) }
     }
+
+    #[enum_dispatch]
+    pub trait EditorMotion {
+        fn name(&self) -> Cow<'static, str>;
+
+        fn process<W: GraphWidget + ?Sized, S: Selection>(
+            self,
+            count: Option<NonZeroU32>,
+            cx: ActionCx<W>,
+            selection: S,
+        ) -> bool;
+    }
+
+    impl<T: EditorMotion> EditorAction for T {
+        #[inline]
+        fn is_silent(&self) -> bool { true }
+
+        #[inline]
+        fn name(&self) -> Cow<'static, str> { EditorMotion::name(self) }
+
+        fn process<W: GraphWidget + ?Sized>(
+            self,
+            count: Option<NonZeroU32>,
+            cx: ActionCx<W>,
+        ) -> bool {
+            EditorMotion::process(self, count, cx, NullSelection)
+        }
+    }
+
+    #[enum_dispatch(EditorMotion)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum Motion {
+        // Local
+        Unhandled,
+
+        // From cursor
+        GoToOpposite,
+        StepCursor,
+
+        // From jump
+        JumpToPort,
+    }
+
+    impl Default for Motion {
+        #[inline]
+        fn default() -> Self { Self::Unhandled(Unhandled) }
+    }
 }
 
-pub use imp::{Action, EditorAction};
+pub use imp::{Action, EditorAction, EditorMotion, Motion};
 
 mod actions {
     use crate::bindings::ModeKind;
@@ -204,15 +267,17 @@ impl EditorAction for actions::ToggleDebug {
     }
 }
 
-impl EditorAction for actions::Unhandled {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
+impl EditorMotion for actions::Unhandled {
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<unhandled>".into() }
 
     #[inline]
-    fn process<W: GraphWidget + ?Sized>(self, _: Option<NonZeroU32>, _: ActionCx<W>) -> bool {
+    fn process<W: GraphWidget + ?Sized, S: Selection>(
+        self,
+        _: Option<NonZeroU32>,
+        _: ActionCx<W>,
+        _: S,
+    ) -> bool {
         false
     }
 }

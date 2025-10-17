@@ -18,6 +18,7 @@ mod cursor;
 mod jump;
 mod keyboard;
 pub mod modifiers;
+mod selection;
 mod status;
 mod trie;
 
