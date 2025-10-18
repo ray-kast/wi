@@ -5,7 +5,10 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{bindings::ModeKind, selection::Selection, GraphWidget, GraphWidgetDriver};
+use crate::{
+    bindings::ModeKind, selection::Selection, trie::accept::Priority, GraphWidget,
+    GraphWidgetDriver,
+};
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
@@ -15,6 +18,7 @@ pub mod prelude {
         cursor::actions::*,
         jump::actions::*,
         selection::{Selection, SelectionExt},
+        trie::accept::Priority,
     };
 
     pub fn run_with_count(
@@ -62,7 +66,7 @@ mod imp {
     use super::prelude::*;
     use crate::{
         selection::{NullSelection, Selection},
-        trie::accept::IsFallthrough,
+        trie::accept::HasPriority,
         GraphWidget,
     };
 
@@ -70,6 +74,9 @@ mod imp {
     pub trait EditorAction {
         #[inline]
         fn is_silent(&self) -> bool { false }
+
+        #[inline]
+        fn priority(&self) -> Priority { Priority::Accept }
 
         fn name(&self) -> Cow<'static, str>;
 
@@ -84,7 +91,6 @@ mod imp {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Action {
         // Local
-        Fallthrough,
         Motion,
         Nop,
         PushCount,
@@ -96,9 +102,9 @@ mod imp {
         ViewCursor,
     }
 
-    impl IsFallthrough for Action {
+    impl HasPriority for Action {
         #[inline]
-        fn is_fallthrough(&self) -> bool { matches!(self, Self::Fallthrough(..)) }
+        fn priority(&self) -> Priority { EditorAction::priority(self) }
     }
 
     impl Default for Action {
@@ -116,6 +122,9 @@ mod imp {
     pub trait EditorMotion {
         fn name(&self) -> Cow<'static, str>;
 
+        #[inline]
+        fn priority(&self) -> Priority { Priority::Accept }
+
         fn process<W: GraphWidget + ?Sized, S: Selection>(
             self,
             count: Option<NonZeroU32>,
@@ -127,6 +136,9 @@ mod imp {
     impl<T: EditorMotion> EditorAction for T {
         #[inline]
         fn is_silent(&self) -> bool { true }
+
+        #[inline]
+        fn priority(&self) -> Priority { EditorMotion::priority(self) }
 
         #[inline]
         fn name(&self) -> Cow<'static, str> { EditorMotion::name(self) }
@@ -166,9 +178,6 @@ mod actions {
     use crate::bindings::ModeKind;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct Fallthrough;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Nop;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,22 +193,12 @@ mod actions {
     pub struct Unhandled;
 }
 
-impl EditorAction for actions::Fallthrough {
-    #[inline]
-    fn is_silent(&self) -> bool { unreachable!() }
-
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { unreachable!() }
-
-    #[inline]
-    fn process<W: GraphWidget + ?Sized>(self, _: Option<NonZeroU32>, _: ActionCx<W>) -> bool {
-        unreachable!()
-    }
-}
-
 impl EditorAction for actions::Nop {
     #[inline]
     fn is_silent(&self) -> bool { true }
+
+    #[inline]
+    fn priority(&self) -> Priority { Priority::Nop }
 
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<nop>".into() }
@@ -268,6 +267,9 @@ impl EditorAction for actions::ToggleDebug {
 }
 
 impl EditorMotion for actions::Unhandled {
+    #[inline]
+    fn priority(&self) -> Priority { Priority::Reject }
+
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<unhandled>".into() }
 

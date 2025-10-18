@@ -29,13 +29,13 @@ use crate::modifiers::*;
 
 trie! {
     #[advance = Nop]
-    #[fallthrough = Fallthrough]
+    #[fallthrough = Nop]
     pub fn ConnectAccept(k: Key) -> Action {
         _ => yield,
     }
 
     #[advance = Nop]
-    #[fallthrough = Fallthrough]
+    #[fallthrough = Nop]
     pub fn NormalAccept(k: Key) -> Action {
         C('c', M_SHIFT) => yield SetMode(ModeKind::Connect),
 
@@ -65,7 +65,7 @@ trie! {
     }
 
     #[advance = Nop]
-    #[fallthrough = Fallthrough]
+    #[fallthrough = Nop]
     pub fn GlobalAccept(k: Key) -> Action {
         C(c @ '1'..='9', M_NONE) => Count(PushCount(c)) @ "" {
             C(c @ '0'..='9', M_NONE) => Count(PushCount(c)) { .. },
@@ -90,22 +90,19 @@ mod mode {
 
     use super::{ConnectAccept, GlobalAccept, Key, MotionAccept, NormalAccept};
     use crate::{
-        trie::{
-            accept::{Fallthrough, Overlay},
-            Acceptor,
-        },
+        trie::{accept::Overlay, Acceptor},
         Action,
     };
 
-    type WithGlobal<A> = Overlay<A, GlobalAccept>;
+    type WithGlobal<A> = Overlay<GlobalAccept, A>;
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
         Connect {
-            accept: WithGlobal<Fallthrough<ConnectAccept, MotionAccept>>,
+            accept: WithGlobal<Overlay<MotionAccept, ConnectAccept>>,
         },
         Normal {
-            accept: WithGlobal<Fallthrough<NormalAccept, MotionAccept>>,
+            accept: WithGlobal<Overlay<MotionAccept, NormalAccept>>,
         },
     }
 

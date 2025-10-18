@@ -33,7 +33,9 @@ pub trait NodeExt: Node {
     fn name_rect(&self) -> Rect {
         let vec = match self.style() {
             NodeStyle::Small => Vec2::new(12.0, 2.0),
-            NodeStyle::Medium => Vec2::new(12.0, 4.0 + (self.inner_size().height - PORT_HEIGHT) * 0.5),
+            NodeStyle::Medium => {
+                Vec2::new(12.0, 4.0 + (self.inner_size().height - PORT_HEIGHT) * 0.5)
+            },
             NodeStyle::Large => Vec2::new(4.0, 4.0),
         };
         Rect::from_points(
@@ -42,7 +44,6 @@ pub trait NodeExt: Node {
         )
     }
 
-    #[inline]
     fn port_label_y(&self, idx: u16, side: Side) -> f64 {
         match self.style() {
             NodeStyle::Small => {
@@ -88,6 +89,7 @@ pub trait NodeExt: Node {
         self.position() + self.port_inner_offs(idx, side) + Vec2::new(padding.x0, padding.y0)
     }
 
+    #[inline]
     fn edge_midpoint(&self, port: u16, to_node: &Self, to_port: u16) -> Point {
         ((self.port_pos(port, Side::Out).to_vec2() + to_node.port_pos(to_port, Side::In).to_vec2())
             * 0.5)

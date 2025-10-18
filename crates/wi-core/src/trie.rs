@@ -9,19 +9,26 @@ pub trait Acceptor<T>: Default + PartialEq {
 pub mod accept {
     use super::Acceptor;
 
-    pub trait IsFallthrough {
-        fn is_fallthrough(&self) -> bool;
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum Priority {
+        Accept,
+        Nop,
+        Reject,
+    }
+
+    pub trait HasPriority {
+        fn priority(&self) -> Priority;
     }
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Hash)]
     pub struct Overlay<A, B> {
         pub over: B,
-        pub inner: A,
+        pub under: A,
     }
 
     impl<
             A: Acceptor<T, Output: Into<B::Output>>,
-            B: Acceptor<T, Output: IsFallthrough>,
+            B: Acceptor<T, Output: HasPriority>,
             T: Clone,
         > Acceptor<T> for Overlay<A, B>
     {
@@ -30,56 +37,30 @@ pub mod accept {
         #[inline]
         fn pending_op(&self) -> &'static str {
             if self.over == B::default() {
-                self.inner.pending_op()
+                self.under.pending_op()
             } else {
                 self.over.pending_op()
             }
         }
 
-        #[inline]
         fn accept(&mut self, input: T) -> Self::Output {
-            let out = self.over.accept(input.clone());
-            if out.is_fallthrough() {
-                self.inner.accept(input).into()
+            let over_out = self.over.accept(input.clone());
+            let under_out = self.under.accept(input).into();
+
+            let over_pri = over_out.priority();
+            let under_pri = under_out.priority();
+
+            if let Priority::Accept = over_pri {
+                self.under = A::default();
+            } else if let Priority::Accept = under_pri {
+                self.over = B::default();
+            }
+
+            if over_pri <= under_pri {
+                over_out
             } else {
-                out
+                under_out
             }
-        }
-    }
-
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Hash)]
-    pub struct Fallthrough<A, F> {
-        pub through_with: F,
-        pub inner: A,
-    }
-
-    impl<
-            A: Acceptor<T, Output: IsFallthrough>,
-            F: Acceptor<T, Output: Into<A::Output>>,
-            T: Clone,
-        > Acceptor<T> for Fallthrough<A, F>
-    {
-        type Output = A::Output;
-
-        #[inline]
-        fn pending_op(&self) -> &'static str {
-            if self.through_with == F::default() {
-                self.inner.pending_op()
-            } else {
-                self.through_with.pending_op()
-            }
-        }
-
-        fn accept(&mut self, input: T) -> Self::Output {
-            if self.through_with == F::default() {
-                let out = self.inner.accept(input.clone());
-
-                if !out.is_fallthrough() {
-                    return out;
-                }
-            }
-
-            self.through_with.accept(input).into()
         }
     }
 }
