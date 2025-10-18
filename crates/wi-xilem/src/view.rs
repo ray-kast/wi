@@ -1,24 +1,17 @@
 use std::sync::Arc;
 
-use petgraph::{
-    graph::IndexType,
-    visit::{EdgeRef, IntoEdgeReferences},
-};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use xilem::{
     core::{View, ViewMarker},
     Pod, ViewCtx,
 };
 
 use crate::{
-    graph::{port_overflow, Graph, GraphMarker, NodeKind},
+    graph::{Graph, Node},
     widget,
 };
 
-pub fn graph_editor<I, W, P, Ix: IndexType>(
-    graph: Checked<Graph<I, W, P, Ix>>,
-) -> GraphEditor<Graph<I, W, P, Ix>> {
-    GraphEditor(graph.0)
-}
+pub fn graph_editor<N>(graph: Checked<Graph<N>>) -> GraphEditor<N> { GraphEditor(graph.0) }
 
 #[derive(Debug)]
 pub struct Checked<G>(Arc<G>);
@@ -33,34 +26,18 @@ impl<G> Checked<G> {
     pub const unsafe fn new_unchecked(graph: Arc<G>) -> Self { Self(graph) }
 }
 
-impl<G: GraphMarker> Checked<G> {
+impl<N: Node> Checked<Graph<N>> {
     #[must_use]
-    pub fn new(graph: Arc<G>) -> Self {
-        let g = graph.as_graph();
-
-        for node in g.node_weights() {
-            match &node.kind {
-                NodeKind::Widget(_) => (),
-                NodeKind::Small(s) => {
-                    u16::try_from(s.inputs.len()).unwrap_or_else(|_| port_overflow());
-                    u16::try_from(s.outputs.len()).unwrap_or_else(|_| port_overflow());
-                },
-                NodeKind::Large(l) => {
-                    u16::try_from(l.inputs.len()).unwrap_or_else(|_| port_overflow());
-                    u16::try_from(l.outputs.len()).unwrap_or_else(|_| port_overflow());
-                },
-            }
-        }
-
-        for edge in g.edge_references() {
+    pub fn new(graph: Arc<Graph<N>>) -> Self {
+        for edge in graph.edge_references() {
             let weight = edge.weight();
 
             assert!(
-                weight.from_port < g[edge.source()].out_arity(),
+                weight.from_port < graph[edge.source()].out_arity(),
                 "Invalid edge source port index"
             );
             assert!(
-                weight.to_port < g[edge.target()].in_arity(),
+                weight.to_port < graph[edge.target()].in_arity(),
                 "Invalid edge target port index"
             );
         }
@@ -71,11 +48,11 @@ impl<G: GraphMarker> Checked<G> {
 
 #[must_use]
 #[derive(Debug)]
-pub struct GraphEditor<G>(pub(super) Arc<G>);
+pub struct GraphEditor<N>(pub(super) Arc<Graph<N>>);
 
-impl<G: GraphMarker> ViewMarker for GraphEditor<G> {}
-impl<S, A, G: GraphMarker + 'static> View<S, A, ViewCtx> for GraphEditor<G> {
-    type Element = Pod<widget::GraphEditor<G>>;
+impl<N> ViewMarker for GraphEditor<N> {}
+impl<S, A, N: Node + 'static> View<S, A, ViewCtx> for GraphEditor<N> {
+    type Element = Pod<widget::GraphEditor<N>>;
     type ViewState = ();
 
     fn build(&self, ctx: &mut ViewCtx) -> (Self::Element, Self::ViewState) {

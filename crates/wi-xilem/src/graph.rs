@@ -1,52 +1,121 @@
-use std::{
-    borrow::{Borrow, BorrowMut, Cow},
-    sync::Arc,
-};
+use std::{borrow::Cow, sync::Arc};
 
 use masonry::kurbo::Point;
-use petgraph::{graph::IndexType, prelude::StableDiGraph};
+use petgraph::prelude::StableDiGraph;
 
-pub type Graph<I, W, P, Ix = u32> = StableDiGraph<Arc<Node<I, W, P>>, Edge, Ix>;
+pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
-#[derive(Debug, Clone)]
-pub struct Node<I, W, P> {
-    pub name: Cow<'static, str>,
-    pub icon: I,
-    pub position: Point,
-    pub width: f64,
-    pub kind: NodeKind<W, P>,
+pub trait Node: Clone {
+    type Icon;
+    type Widget;
+    type PortShape;
+
+    fn in_arity(&self) -> u16;
+    fn out_arity(&self) -> u16;
+
+    fn in_port(&self, index: u16) -> Port<'_, Self::PortShape, InputLabel<'_, Self::Widget>>;
+    fn out_port(&self, index: u16) -> Port<'_, Self::PortShape, OutputLabel<'_>>;
+
+    fn name(&self) -> Cow<'_, str>;
+
+    fn position(&self) -> Point;
+    fn position_mut(&mut self) -> Option<&mut Point>;
+
+    #[inline]
+    fn style(&self) -> NodeStyle { NodeStyle::Large }
+
+    #[inline]
+    fn width(&self) -> f64 {
+        match self.style() {
+            NodeStyle::Small => 84.0,
+            NodeStyle::Medium => 96.0,
+            NodeStyle::Large => 192.0,
+        }
+    }
+
+    #[inline]
+    fn label(&self) -> NodeLabel<'_, Self::Icon, Self::Widget> { NodeLabel::Name }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Port<'n, S, L> {
+    pub name: Cow<'n, str>,
+    pub shape: S,
+    pub label: L,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum InputLabel<'n, W> {
+    #[default]
+    Name,
+    Text(Cow<'n, str>),
+    Widget(W),
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum OutputLabel<'n> {
+    #[default]
+    Name,
+    Text(Cow<'n, str>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NodeStyle {
+    Small,
+    Medium,
+    Large,
 }
 
 #[derive(Debug, Clone)]
-pub enum NodeKind<W, P> {
-    Widget(WidgetNode<W, P>),
-    Small(SmallNode<P>),
-    Large(LargeNode<W, P>),
+pub enum NodeLabel<'n, I, W> {
+    Name,
+    Text(Cow<'n, str>),
+    Icon(I),
+    Widget(W),
 }
 
-#[derive(Debug, Clone)]
-pub struct WidgetNode<W, P> {
-    pub widget: Option<W>,
-    pub input: Option<PortInfo<P>>,
-    pub output: Option<PortInfo<P>>,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NoWidget {}
 
-#[derive(Debug, Clone)]
-pub struct SmallNode<P> {
-    pub inputs: Vec<PortInfo<P>>,
-    pub outputs: Vec<PortInfo<P>>,
-}
+impl masonry::core::Widget for NoWidget {
+    #[inline]
+    fn register_children(&mut self, _: &mut masonry::core::RegisterCtx) { match *self {} }
 
-#[derive(Debug, Clone)]
-pub struct LargeNode<W, P> {
-    pub inputs: Vec<(PortInfo<P>, Option<W>)>,
-    pub outputs: Vec<PortInfo<P>>,
-}
+    #[inline]
+    fn layout(
+        &mut self,
+        _: &mut masonry::core::LayoutCtx,
+        _: &mut masonry::core::PropertiesMut<'_>,
+        _: &masonry::core::BoxConstraints,
+    ) -> masonry::kurbo::Size {
+        match *self {}
+    }
 
-#[derive(Debug, Clone)]
-pub struct PortInfo<T> {
-    pub name: Cow<'static, str>,
-    pub data: T,
+    #[inline]
+    fn paint(
+        &mut self,
+        _: &mut masonry::core::PaintCtx,
+        _: &masonry::core::PropertiesRef<'_>,
+        _: &mut masonry::vello::Scene,
+    ) {
+        match *self {}
+    }
+
+    #[inline]
+    fn accessibility_role(&self) -> accesskit::Role { match *self {} }
+
+    #[inline]
+    fn accessibility(
+        &mut self,
+        _: &mut masonry::core::AccessCtx,
+        _: &masonry::core::PropertiesRef<'_>,
+        _: &mut accesskit::Node,
+    ) {
+        match *self {}
+    }
+
+    #[inline]
+    fn children_ids(&self) -> smallvec::SmallVec<[masonry::core::WidgetId; 16]> { match *self {} }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,67 +124,7 @@ pub struct Edge {
     pub to_port: u16,
 }
 
-impl<I, W, P> Node<I, W, P> {
-    #[inline]
-    pub fn in_arity(&self) -> u16 {
-        match &self.kind {
-            NodeKind::Widget(w) => w.input.iter().len(),
-            NodeKind::Small(s) => s.inputs.len(),
-            NodeKind::Large(l) => l.inputs.len(),
-        }
-        .try_into()
-        .unwrap_or_else(|_| port_overflow())
-    }
-
-    #[inline]
-    pub fn out_arity(&self) -> u16 {
-        match &self.kind {
-            NodeKind::Widget(w) => w.output.iter().len(),
-            NodeKind::Small(s) => s.outputs.len(),
-            NodeKind::Large(l) => l.outputs.len(),
-        }
-        .try_into()
-        .unwrap_or_else(|_| port_overflow())
-    }
-}
-
 pub const PORT_MAX: u16 = u16::MAX;
 #[inline]
 #[expect(clippy::must_use_candidate, reason = "Using this is impossible")]
 pub fn port_overflow<T>() -> T { panic!("Port number exceeded {PORT_MAX}") }
-
-pub type GraphType<G> = Graph<
-    <G as GraphMarker>::Icon,
-    <G as GraphMarker>::Widget,
-    <G as GraphMarker>::PortData,
-    <G as GraphMarker>::Index,
->;
-
-pub type NodeType<G> =
-    Node<<G as GraphMarker>::Icon, <G as GraphMarker>::Widget, <G as GraphMarker>::PortData>;
-
-pub trait GraphMarker:
-    Clone
-    + From<GraphType<Self>>
-    + Into<GraphType<Self>>
-    + Borrow<GraphType<Self>>
-    + BorrowMut<GraphType<Self>>
-{
-    type Icon: Clone;
-    type Widget: Clone;
-    type PortData: Clone;
-    type Index: IndexType;
-
-    #[inline]
-    fn as_graph(&self) -> &GraphType<Self> { self.borrow() }
-
-    #[inline]
-    fn as_graph_mut(&mut self) -> &mut GraphType<Self> { self.borrow_mut() }
-}
-
-impl<I: Clone, W: Clone, P: Clone, Ix: IndexType> GraphMarker for Graph<I, W, P, Ix> {
-    type Icon = I;
-    type Index = Ix;
-    type PortData = P;
-    type Widget = W;
-}

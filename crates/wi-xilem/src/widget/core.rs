@@ -22,13 +22,13 @@ use super::{
     view::{Pan, Zoom},
 };
 use crate::{
-    graph::{GraphMarker, GraphType},
+    graph::{Graph, Node},
     widget::node::NodeExt,
 };
 
-pub struct EditorCore<G: GraphMarker> {
-    pub graph: Arc<G>,
-    node_drag: DragHandler<(NodeIndex<G::Index>, Point)>,
+pub struct EditorCore<N> {
+    pub graph: Arc<Graph<N>>,
+    node_drag: DragHandler<(NodeIndex, Point)>,
     pub pan: Pan,
     pub zoom: Zoom,
     pub statusbar: WidgetPod<Flex>,
@@ -40,17 +40,10 @@ macro_rules! make_mut {
     };
 }
 
-macro_rules! graph_mut {
-    ($core:expr) => {
-        make_mut!($core.graph).as_graph_mut()
-    };
-}
-
-impl<G: GraphMarker> EditorCore<G> {
-    pub fn new(graph: &crate::GraphEditor<G>) -> Self {
+impl<N: Node> EditorCore<N> {
+    pub fn new(graph: &crate::GraphEditor<N>) -> Self {
         let graph = Arc::clone(&graph.0);
         let pan = graph
-            .as_graph()
             .node_weights()
             .fold(None, |r: Option<Rect>, n| {
                 Some(if let Some(rect) = r {
@@ -71,9 +64,6 @@ impl<G: GraphMarker> EditorCore<G> {
     }
 
     #[inline]
-    pub fn graph(&self) -> &GraphType<G> { self.graph.as_graph() }
-
-    #[inline]
     pub fn view_transform(&self, size: Size) -> Affine {
         Affine::scale_about(self.zoom.scale(), (size.to_vec2() * 0.5).to_point())
             * Affine::translate(self.pan.translation(size))
@@ -86,7 +76,7 @@ impl<G: GraphMarker> EditorCore<G> {
 }
 
 // Node drag behavior
-impl<G: GraphMarker> EditorCore<G> {
+impl<N: Node> EditorCore<N> {
     #[inline]
     pub fn in_node_drag(&self) -> bool { self.node_drag.in_drag() }
 
@@ -100,7 +90,7 @@ impl<G: GraphMarker> EditorCore<G> {
         let point = self.iview_transform(ctx.size()) * ctx.local_position(state.position);
 
         let Some(node) = self
-            .graph()
+            .graph
             .node_references()
             .rev()
             .find_map(|(k, v)| v.rect().contains(point).then_some(k))
@@ -109,26 +99,24 @@ impl<G: GraphMarker> EditorCore<G> {
         };
 
         self.node_drag
-            .begin_drag(pointer, state, (node, self.graph()[node].position));
+            .begin_drag(pointer, state, (node, self.graph[node].position()));
     }
 
-    #[expect(clippy::type_complexity, reason = "Can't refactor opaque type")]
     #[inline]
     fn node_drag_delta(
-        nodes: &mut GraphType<G>,
+        nodes: &mut Graph<N>,
         zoom: &Zoom,
         ctx: &mut EventCtx,
-    ) -> impl FnOnce(&(NodeIndex<G::Index>, Point), PhysicalPosition<f64>, PhysicalPosition<f64>)
-    {
+    ) -> impl FnOnce(&(NodeIndex, Point), PhysicalPosition<f64>, PhysicalPosition<f64>) {
         |&(node, start_pos), from, to| {
             let delta = ctx.local_position(to) - ctx.local_position(from);
             let node = &mut nodes[node];
 
-            let prev = mem::replace(
-                &mut make_mut!(*node).position,
-                start_pos + delta / zoom.scale(),
-            );
-            if prev != node.position {
+            let Some(pos) = make_mut!(*node).position_mut() else {
+                return;
+            };
+            let prev = mem::replace(pos, start_pos + delta / zoom.scale());
+            if prev != node.position() {
                 ctx.request_render();
             }
         }
@@ -144,7 +132,7 @@ impl<G: GraphMarker> EditorCore<G> {
         self.node_drag.update_drag(
             pointer,
             state,
-            Self::node_drag_delta(graph_mut!(self), &self.zoom, ctx),
+            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, ctx),
         );
     }
 
@@ -158,31 +146,31 @@ impl<G: GraphMarker> EditorCore<G> {
         self.node_drag.complete_drag(
             pointer,
             state,
-            Self::node_drag_delta(graph_mut!(self), &self.zoom, ctx),
+            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, ctx),
         );
     }
 
     #[inline]
     pub fn cancel_node_drag(&mut self, pointer: Option<&PointerInfo>, ctx: &mut EventCtx) {
         self.node_drag.cancel_drag(pointer, |&(n, p)| {
-            let node = &mut graph_mut!(self)[n];
-            let prev = mem::replace(&mut make_mut!(*node).position, p);
-            if prev != node.position {
+            let node = &mut make_mut!(self.graph)[n];
+            let prev = mem::replace(&mut make_mut!(*node).position(), p);
+            if prev != node.position() {
                 ctx.request_render();
             }
         });
     }
 }
 
-impl<G: GraphMarker> GraphWidget for EditorCore<G> {
-    type Cell = Cell<G>;
+impl<N: Node> GraphWidget for EditorCore<N> {
+    type Cell = Cell<N>;
     type Context<'a> = EventCtx<'a>;
-    type Node = NodeIndex<G::Index>;
+    type Node = NodeIndex;
     type Point = Point;
     type PortIdx = u16;
 
     fn default_cursor(&self) -> WCursor<Self> {
-        self.graph()
+        self.graph
             .node_references()
             .next()
             .map_or(Cursor::FixedPoint(Point::ZERO), |(k, _)| Cursor::Node(k))
@@ -194,7 +182,7 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
         side: Side,
         cell: &Self::Cell,
     ) -> Option<Self::PortIdx> {
-        let node = &self.graph()[n];
+        let node = &self.graph[n];
         let len = match side {
             Side::In => node.in_arity(),
             Side::Out => node.out_arity(),
@@ -214,7 +202,7 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)> {
         let SidedPort(side, Port(n, port)) = *port;
-        let node = &self.graph()[n];
+        let node = &self.graph[n];
 
         let res: u16 = usize::from(port)
             .saturating_add_signed(count)
@@ -239,11 +227,11 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
         cell: &Self::Cell,
     ) -> Option<WEdgeCursor<Self>> {
         let SidedPort(side, port) = *port;
-        let node = &self.graph()[port.0];
+        let node = &self.graph[port.0];
 
         let (from, to) = match side {
             Side::In => (
-                self.graph()
+                self.graph
                     .edge_references()
                     .find(|e| port == Port(e.target(), e.weight().to_port))
                     .map(|e| Port(e.source(), e.weight().from_port))?,
@@ -253,19 +241,15 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
                 let pos = cell.edge_target(self);
                 (
                     port,
-                    self.graph()
+                    self.graph
                         .edge_references()
                         .filter(|e| port == Port(e.source(), e.weight().from_port))
                         .map(|e| {
                             let w = e.weight();
                             (
                                 Port(e.target(), w.to_port),
-                                node.edge_midpoint(
-                                    w.from_port,
-                                    &self.graph()[e.target()],
-                                    w.to_port,
-                                )
-                                .distance_squared(pos),
+                                node.edge_midpoint(w.from_port, &self.graph[e.target()], w.to_port)
+                                    .distance_squared(pos),
                             )
                         })
                         .min_by(|(_, d), (_, e)| d.total_cmp(e))?
@@ -287,18 +271,18 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
         count: isize,
     ) -> Option<(NonZeroIsize, WPort<Self>)> {
         let (anchor, &port) = edge.anchor_port();
-        let node = &self.graph()[port.0];
+        let node = &self.graph[port.0];
         let mut ports: Vec<_> = match anchor {
             Side::In => return None,
             Side::Out => self
-                .graph()
+                .graph
                 .edge_references()
                 .filter(|e| edge.from == Port(e.source(), e.weight().from_port))
                 .map(|e| {
                     let w = e.weight();
                     (
                         Port(e.target(), w.to_port),
-                        node.edge_midpoint(w.from_port, &self.graph()[e.target()], w.to_port),
+                        node.edge_midpoint(w.from_port, &self.graph[e.target()], w.to_port),
                     )
                 })
                 .collect(),
@@ -331,13 +315,11 @@ impl<G: GraphMarker> GraphWidget for EditorCore<G> {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
                 self.pan.center_on(match *cursor {
-                    Cursor::Node(n) => self.graph()[n].rect().center(),
-                    Cursor::Port(SidedPort(s, Port(n, p))) => self.graph()[n].port_pos(p, s),
-                    Cursor::Edge(e) => self.graph()[e.from.0].edge_midpoint(
-                        e.from.1,
-                        &self.graph()[e.to.0],
-                        e.to.1,
-                    ),
+                    Cursor::Node(n) => self.graph[n].rect().center(),
+                    Cursor::Port(SidedPort(s, Port(n, p))) => self.graph[n].port_pos(p, s),
+                    Cursor::Edge(e) => {
+                        self.graph[e.from.0].edge_midpoint(e.from.1, &self.graph[e.to.0], e.to.1)
+                    },
                     Cursor::FixedPoint(p) => p,
                 });
                 self.zoom.reset();
