@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 accesskit.workspace = true
 masonry.workspace = true
+petgraph = "0.8.3"
 smallvec.workspace = true
 tracing.workspace = true
 wi-core.workspace = true

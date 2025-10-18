@@ -1,12 +1,17 @@
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        EventCtx, Ime, KeyboardEvent, PaintCtx, PointerButton, PointerEvent, TextEvent, Update,
-        Widget,
+        render_text, EventCtx, Ime, KeyboardEvent, PaintCtx, PointerButton, PointerEvent, StyleSet,
+        TextEvent, Update, Widget,
     },
-    kurbo::{Affine, Circle, Point, Rect, Size, Stroke},
-    peniko::{color::OpaqueColor, BlendMode, Fill},
+    kurbo::{Affine, Circle, Point, Rect, Size, Stroke, Vec2},
+    parley::{Alignment, AlignmentOptions, GenericFamily, Layout},
+    peniko::{color::OpaqueColor, BlendMode, Brush, Fill},
     vello::Scene,
+};
+use petgraph::{
+    graph::NodeIndex,
+    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 use smallvec::smallvec;
 use wi_core::{
@@ -14,7 +19,11 @@ use wi_core::{
     Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
-use self::{core::GraphCore, edge::Edge, node::Node};
+use self::{core::EditorCore, edge::Edge};
+use crate::{
+    graph::{GraphMarker, LargeNode, NodeKind, NodeType, WidgetNode},
+    widget::node::{NodeExt, NodeWidget},
+};
 
 mod cell;
 mod core;
@@ -25,16 +34,17 @@ mod status;
 mod view;
 
 #[expect(missing_debug_implementations, reason = "WidgetPod doesn't impl Debug")]
-pub struct Graph {
-    core: GraphCore,
-    driver: GraphWidgetDriver<GraphCore>,
+pub struct GraphEditor<G: GraphMarker> {
+    core: EditorCore<G>,
+    driver: GraphWidgetDriver<EditorCore<G>>,
     viewport: Rect,
 }
 
-impl Graph {
+impl<G: GraphMarker> GraphEditor<G> {
     #[inline]
-    pub fn new(graph: &crate::GraphView) -> Self {
-        let core = GraphCore::new(graph);
+    #[must_use]
+    pub fn new(graph: &crate::GraphEditor<G>) -> Self {
+        let core = EditorCore::new(graph);
         Self {
             driver: GraphWidgetDriver::new(&core),
             core,
@@ -63,17 +73,50 @@ impl Graph {
         );
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The logic here would be difficult to refactor"
+    )]
     fn paint_node(
         ctx: &mut PaintCtx,
         scene: &mut Scene,
         tf: Affine,
-        node: (usize, &Node),
-        focus_node: Option<&usize>,
-        focus_port: Option<(Side, &WPort<GraphCore>)>,
+        node: (NodeIndex<G::Index>, &NodeType<G>),
+        focus_node: Option<NodeIndex<G::Index>>,
+        focus_port: Option<(Side, &WPort<EditorCore<G>>)>,
         weight: f64,
     ) {
+        // HACK: this should be in layout()
+        fn hack_layout_text(
+            s: &str,
+            mut b: masonry::parley::RangedBuilder<'_, masonry::core::BrushIndex>,
+            max_advance: f32,
+            alignment: Alignment,
+        ) -> Layout<masonry::core::BrushIndex> {
+            let mut styles = StyleSet::new(node::PORT_HEIGHT_32);
+            styles.insert(GenericFamily::SystemUi.into());
+            let mut layout = Layout::new();
+            styles
+                .inner()
+                .values()
+                .for_each(|v| b.push_default(v.to_owned()));
+
+            b.build_into(&mut layout, s);
+            layout.break_all_lines(Some(max_advance));
+            layout.align(Some(max_advance), alignment, AlignmentOptions::default());
+            layout
+        }
+
         let (id, node) = node;
-        let rect = node.rect().to_rounded_rect(4.0 * weight.clamp(0.5, 2.0));
+        let rect = node.rect();
+
+        let rounding_weight = weight.clamp(0.5, 2.0);
+        let clip = match &node.kind {
+            NodeKind::Widget(_) => rect.to_rounded_rect(rect.height()),
+            NodeKind::Small(_) | NodeKind::Large(_) => rect.to_rounded_rect(6.0 * rounding_weight),
+        };
+
+        scene.push_layer(BlendMode::default(), 1.0, tf, &clip);
 
         scene.fill(
             Fill::NonZero,
@@ -83,19 +126,137 @@ impl Graph {
             &rect,
         );
 
-        scene.stroke(
-            &Stroke::new(4.0 * weight.max(0.5)),
-            tf,
-            if ctx.is_focus_target() && focus_node == Some(&id) {
-                OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
-            } else {
-                OpaqueColor::from_rgb8(0x3a, 0x3a, 0x3a)
+        match &node.kind {
+            NodeKind::Widget(WidgetNode { widget, .. }) => (),
+            NodeKind::Small(_) => {
+                let offs = node.name_rect().origin().x;
+                scene.fill(
+                    Fill::NonZero,
+                    tf,
+                    OpaqueColor::from_rgb8(0x20, 0x73, 0x20),
+                    None,
+                    &Rect::from_origin_size(
+                        node.position + Vec2::new(offs, 0.0),
+                        Size::new(rect.width() - offs * 2.0, rect.height()),
+                    ),
+                );
             },
-            None,
-            &rect,
-        );
+            NodeKind::Large(_) => {
+                // HACK: Using the bottom padding as a shorthand for "inner padding" is bad
+                scene.fill(
+                    Fill::NonZero,
+                    tf,
+                    OpaqueColor::from_rgb8(0x20, 0x73, 0x20),
+                    None,
+                    &Rect::from_origin_size(
+                        node.position,
+                        Size::new(rect.width(), node.padding().y0 - node.padding().y1),
+                    ),
+                );
+            },
+        }
 
-        for port in 0..node.in_edges.len() {
+        let name_rect = node.name_rect();
+        let (fcx, lcx) = ctx.text_contexts();
+
+        {
+            #[expect(clippy::cast_possible_truncation)]
+            let layout = hack_layout_text(
+                &node.name,
+                lcx.ranged_builder(fcx, &node.name, 1.0, true),
+                name_rect.width() as f32,
+                match node.kind {
+                    NodeKind::Widget(WidgetNode {
+                        input: Some(_),
+                        output: None,
+                        ..
+                    }) => Alignment::Left,
+                    NodeKind::Widget(WidgetNode {
+                        input: None,
+                        output: Some(_),
+                        ..
+                    }) => Alignment::Right,
+                    _ => Alignment::Middle,
+                },
+            );
+
+            render_text(
+                scene,
+                tf * Affine::translate(node.position.to_vec2() + name_rect.origin().to_vec2()),
+                &layout,
+                &[Brush::Solid(masonry::theme::TEXT_COLOR)],
+                true,
+            );
+        }
+
+        scene.pop_layer();
+
+        if let NodeKind::Large(LargeNode { inputs, outputs }) = &node.kind {
+            let padding = node.padding();
+
+            let tf =
+                tf * Affine::translate(node.position.to_vec2() + Vec2::new(padding.x0, padding.y0));
+            #[expect(clippy::cast_possible_truncation)]
+            let width = node.inner_size().width as f32;
+
+            for (i, (input, widget)) in inputs.iter().enumerate() {
+                let layout = hack_layout_text(
+                    &input.name,
+                    lcx.ranged_builder(fcx, &input.name, 1.0, true),
+                    width,
+                    Alignment::Left,
+                );
+
+                render_text(
+                    scene,
+                    tf * Affine::translate(Vec2::new(
+                        0.0,
+                        node.port_label_y(
+                            i.try_into().unwrap_or_else(|_| unreachable!()),
+                            Side::In,
+                        ),
+                    )),
+                    &layout,
+                    &[Brush::Solid(masonry::theme::TEXT_COLOR)],
+                    true,
+                );
+            }
+
+            for (i, output) in outputs.iter().enumerate() {
+                let layout = hack_layout_text(
+                    &output.name,
+                    lcx.ranged_builder(fcx, &output.name, 1.0, true),
+                    width,
+                    Alignment::Right,
+                );
+
+                render_text(
+                    scene,
+                    tf * Affine::translate(Vec2::new(
+                        0.0,
+                        node.port_label_y(
+                            i.try_into().unwrap_or_else(|_| unreachable!()),
+                            Side::Out,
+                        ),
+                    )),
+                    &layout,
+                    &[Brush::Solid(masonry::theme::TEXT_COLOR)],
+                    true,
+                );
+            }
+        }
+
+        if ctx.is_focus_target() && focus_node == Some(id) {
+            scene.stroke(
+                &Stroke::new(4.0 * weight.max(0.5)),
+                tf,
+                OpaqueColor::from_rgb8(0x90, 0x37, 0x22),
+                None,
+                &clip,
+            );
+        }
+
+        for port in 0..node.in_arity() {
             Self::paint_port(
                 ctx,
                 scene,
@@ -106,7 +267,7 @@ impl Graph {
             );
         }
 
-        for port in 0..node.out_edges.len() {
+        for port in 0..node.out_arity() {
             Self::paint_port(
                 ctx,
                 scene,
@@ -123,8 +284,8 @@ impl Graph {
         scene: &mut Scene,
         tf: Affine,
         focused: bool,
-        from: (&Node, usize),
-        to: (&Node, usize),
+        from: (&NodeType<G>, u16),
+        to: (&NodeType<G>, u16),
         weight: f64,
     ) {
         scene.stroke(
@@ -140,13 +301,13 @@ impl Graph {
                 from.0.port_pos(from.1, Side::Out),
                 to.0.port_pos(to.1, Side::In),
                 24.0,
-                from.1 < from.0.out_edges.len() / 2,
+                from.1 < from.0.out_arity() / 2,
             ),
         );
     }
 }
 
-impl Widget for Graph {
+impl<G: GraphMarker + 'static> Widget for GraphEditor<G> {
     fn accepts_focus(&self) -> bool { true }
 
     fn accepts_pointer_interaction(&self) -> bool { true }
@@ -220,21 +381,23 @@ impl Widget for Graph {
             },
         }
 
-        for (&node_id, node) in &self.core.nodes {
-            for (i, port) in node.in_edges.iter().enumerate() {
-                let Some(port) = port else { continue };
+        for edge in self.core.graph().edge_references() {
+            let from = edge.source();
+            let to = edge.target();
+            let &crate::graph::Edge { from_port, to_port } = edge.weight();
 
-                if !focus_edge.is_some_and(|e| (e.from, e.to) == (*port, Port(node_id, i))) {
-                    Self::paint_edge(
-                        ctx,
-                        scene,
-                        tf,
-                        false,
-                        (&self.core.nodes[&port.0], port.1),
-                        (node, i),
-                        weight,
-                    );
-                }
+            if !focus_edge
+                .is_some_and(|e| (e.from, e.to) == (Port(from, from_port), Port(to, to_port)))
+            {
+                Self::paint_edge(
+                    ctx,
+                    scene,
+                    tf,
+                    false,
+                    (&self.core.graph()[from], from_port),
+                    (&self.core.graph()[to], to_port),
+                    weight,
+                );
             }
         }
 
@@ -244,22 +407,14 @@ impl Widget for Graph {
                 scene,
                 tf,
                 true,
-                (&self.core.nodes[&e.from.0], e.from.1),
-                (&self.core.nodes[&e.to.0], e.to.1),
+                (&self.core.graph()[e.from.0], e.from.1),
+                (&self.core.graph()[e.to.0], e.to.1),
                 weight,
             );
         }
 
-        for (&id, node) in &self.core.nodes {
-            Self::paint_node(
-                ctx,
-                scene,
-                tf,
-                (id, node),
-                focus_node.as_ref(),
-                focus_port,
-                weight,
-            );
+        for (id, node) in self.core.graph().node_references() {
+            Self::paint_node(ctx, scene, tf, (id, node), focus_node, focus_port, weight);
         }
 
         if self.driver.view_debug() {
@@ -292,7 +447,7 @@ impl Widget for Graph {
         _props: &masonry::core::PropertiesRef<'_>,
         _node: &mut accesskit::Node,
     ) {
-        for _node in &self.core.nodes {
+        for _node in self.core.graph().node_weights() {
             // TODO
         }
     }

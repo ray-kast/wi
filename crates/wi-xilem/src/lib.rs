@@ -1,4 +1,5 @@
+pub mod graph;
 mod view;
-mod widget;
+pub mod widget;
 
 pub use view::*;

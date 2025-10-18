@@ -1,9 +1,13 @@
-use std::{collections::BTreeMap, mem, num::NonZeroIsize};
+use std::{mem, num::NonZeroIsize, sync::Arc};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, WidgetPod},
     kurbo::{Affine, Point, Rect, Size, Vec2},
     widgets::Flex,
+};
+use petgraph::{
+    graph::NodeIndex,
+    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
     Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, WCursor,
@@ -14,37 +18,40 @@ use xilem::dpi::PhysicalPosition;
 use super::{
     cell::Cell,
     drag::DragHandler,
-    node::Node,
     status::RenderedStatus,
     view::{Pan, Zoom},
 };
+use crate::{
+    graph::{GraphMarker, GraphType},
+    widget::node::NodeExt,
+};
 
-pub struct GraphCore {
-    pub nodes: BTreeMap<usize, Node>,
-    node_drag: DragHandler<(usize, Point)>,
+pub struct EditorCore<G: GraphMarker> {
+    pub graph: Arc<G>,
+    node_drag: DragHandler<(NodeIndex<G::Index>, Point)>,
     pub pan: Pan,
     pub zoom: Zoom,
     pub statusbar: WidgetPod<Flex>,
 }
 
-impl GraphCore {
-    pub fn new(graph: &crate::GraphView) -> Self {
-        let mut out_edges = graph.out_edge_map();
+macro_rules! make_mut {
+    ($expr:expr) => {
+        Arc::make_mut(&mut $expr)
+    };
+}
 
-        let nodes: BTreeMap<_, _> = graph
-            .nodes
-            .iter()
-            .map(|(&i, n)| {
-                (i, Node {
-                    pos: n.pos,
-                    in_edges: n.in_edges.clone(),
-                    out_edges: out_edges.remove(&i).unwrap_or_else(|| unreachable!()),
-                })
-            })
-            .collect();
+macro_rules! graph_mut {
+    ($core:expr) => {
+        make_mut!($core.graph).as_graph_mut()
+    };
+}
 
-        let pan = nodes
-            .values()
+impl<G: GraphMarker> EditorCore<G> {
+    pub fn new(graph: &crate::GraphEditor<G>) -> Self {
+        let graph = Arc::clone(&graph.0);
+        let pan = graph
+            .as_graph()
+            .node_weights()
             .fold(None, |r: Option<Rect>, n| {
                 Some(if let Some(rect) = r {
                     rect.union(n.rect())
@@ -55,13 +62,16 @@ impl GraphCore {
             .map_or(Vec2::ZERO, |r| r.center().to_vec2());
 
         Self {
-            nodes,
+            graph,
             node_drag: DragHandler::new(),
             pan: Pan::new(pan),
             zoom: Zoom::default(),
             statusbar: RenderedStatus::new(Status::default()).create(),
         }
     }
+
+    #[inline]
+    pub fn graph(&self) -> &GraphType<G> { self.graph.as_graph() }
 
     #[inline]
     pub fn view_transform(&self, size: Size) -> Affine {
@@ -76,7 +86,7 @@ impl GraphCore {
 }
 
 // Node drag behavior
-impl GraphCore {
+impl<G: GraphMarker> EditorCore<G> {
     #[inline]
     pub fn in_node_drag(&self) -> bool { self.node_drag.in_drag() }
 
@@ -90,30 +100,35 @@ impl GraphCore {
         let point = self.iview_transform(ctx.size()) * ctx.local_position(state.position);
 
         let Some(node) = self
-            .nodes
-            .iter()
+            .graph()
+            .node_references()
             .rev()
-            .find_map(|(&k, v)| v.rect().contains(point).then_some(k))
+            .find_map(|(k, v)| v.rect().contains(point).then_some(k))
         else {
             return;
         };
 
         self.node_drag
-            .begin_drag(pointer, state, (node, self.nodes[&node].pos));
+            .begin_drag(pointer, state, (node, self.graph()[node].position));
     }
 
+    #[expect(clippy::type_complexity, reason = "Can't refactor opaque type")]
     #[inline]
     fn node_drag_delta(
-        nodes: &mut BTreeMap<usize, Node>,
+        nodes: &mut GraphType<G>,
         zoom: &Zoom,
         ctx: &mut EventCtx,
-    ) -> impl FnOnce(&(usize, Point), PhysicalPosition<f64>, PhysicalPosition<f64>) {
-        |&(ref node, start_pos), from, to| {
+    ) -> impl FnOnce(&(NodeIndex<G::Index>, Point), PhysicalPosition<f64>, PhysicalPosition<f64>)
+    {
+        |&(node, start_pos), from, to| {
             let delta = ctx.local_position(to) - ctx.local_position(from);
-            let node = nodes.get_mut(node).unwrap_or_else(|| unreachable!());
+            let node = &mut nodes[node];
 
-            let prev = mem::replace(&mut node.pos, start_pos + delta / zoom.scale());
-            if prev != node.pos {
+            let prev = mem::replace(
+                &mut make_mut!(*node).position,
+                start_pos + delta / zoom.scale(),
+            );
+            if prev != node.position {
                 ctx.request_render();
             }
         }
@@ -129,7 +144,7 @@ impl GraphCore {
         self.node_drag.update_drag(
             pointer,
             state,
-            Self::node_drag_delta(&mut self.nodes, &self.zoom, ctx),
+            Self::node_drag_delta(graph_mut!(self), &self.zoom, ctx),
         );
     }
 
@@ -143,40 +158,46 @@ impl GraphCore {
         self.node_drag.complete_drag(
             pointer,
             state,
-            Self::node_drag_delta(&mut self.nodes, &self.zoom, ctx),
+            Self::node_drag_delta(graph_mut!(self), &self.zoom, ctx),
         );
     }
 
     #[inline]
     pub fn cancel_node_drag(&mut self, pointer: Option<&PointerInfo>, ctx: &mut EventCtx) {
-        self.node_drag.cancel_drag(pointer, |&(ref n, p)| {
-            let node = self.nodes.get_mut(n).unwrap_or_else(|| unreachable!());
-            let prev = mem::replace(&mut node.pos, p);
-            if prev != node.pos {
+        self.node_drag.cancel_drag(pointer, |&(n, p)| {
+            let node = &mut graph_mut!(self)[n];
+            let prev = mem::replace(&mut make_mut!(*node).position, p);
+            if prev != node.position {
                 ctx.request_render();
             }
         });
     }
 }
 
-impl GraphWidget for GraphCore {
-    type Cell = Cell;
+impl<G: GraphMarker> GraphWidget for EditorCore<G> {
+    type Cell = Cell<G>;
     type Context<'a> = EventCtx<'a>;
-    type Node = usize;
+    type Node = NodeIndex<G::Index>;
     type Point = Point;
-    type PortIdx = usize;
+    type PortIdx = u16;
 
     fn default_cursor(&self) -> WCursor<Self> {
-        self.nodes
-            .first_key_value()
-            .map_or(Cursor::FixedPoint(Point::ZERO), |(&k, _)| Cursor::Node(k))
+        self.graph()
+            .node_references()
+            .next()
+            .map_or(Cursor::FixedPoint(Point::ZERO), |(k, _)| Cursor::Node(k))
     }
 
-    fn nearest_port(&self, n: &Self::Node, side: Side, cell: &Self::Cell) -> Option<Self::PortIdx> {
-        let node = &self.nodes[n];
+    fn nearest_port(
+        &self,
+        &n: &Self::Node,
+        side: Side,
+        cell: &Self::Cell,
+    ) -> Option<Self::PortIdx> {
+        let node = &self.graph()[n];
         let len = match side {
-            Side::In => node.in_edges.len(),
-            Side::Out => node.out_edges.len(),
+            Side::In => node.in_arity(),
+            Side::Out => node.out_arity(),
         };
         let pos = cell.port_target(self, side);
 
@@ -193,18 +214,23 @@ impl GraphWidget for GraphCore {
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortIdx)> {
         let SidedPort(side, Port(n, port)) = *port;
-        let node = &self.nodes[&n];
+        let node = &self.graph()[n];
 
-        let res = port.saturating_add_signed(count).min(
-            match side {
-                Side::In => node.in_edges.len(),
-                Side::Out => node.out_edges.len(),
-            }
-            .saturating_sub(1),
-        );
+        let res: u16 = usize::from(port)
+            .saturating_add_signed(count)
+            .min(
+                match side {
+                    Side::In => node.in_arity(),
+                    Side::Out => node.out_arity(),
+                }
+                .saturating_sub(1)
+                .into(),
+            )
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
 
         #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new(res.wrapping_sub(port) as isize).map(|d| (d, res))
+        NonZeroIsize::new((res.wrapping_sub(port) as i16).into()).map(|d| (d, res))
     }
 
     fn nearest_edge(
@@ -213,21 +239,33 @@ impl GraphWidget for GraphCore {
         cell: &Self::Cell,
     ) -> Option<WEdgeCursor<Self>> {
         let SidedPort(side, port) = *port;
-        let node = &self.nodes[&port.0];
+        let node = &self.graph()[port.0];
 
         let (from, to) = match side {
-            Side::In => (node.in_edges[port.1]?, port),
+            Side::In => (
+                self.graph()
+                    .edge_references()
+                    .find(|e| port == Port(e.target(), e.weight().to_port))
+                    .map(|e| Port(e.source(), e.weight().from_port))?,
+                port,
+            ),
             Side::Out => {
                 let pos = cell.edge_target(self);
                 (
                     port,
-                    node.out_edges[port.1]
-                        .iter()
-                        .map(|&p| {
+                    self.graph()
+                        .edge_references()
+                        .filter(|e| port == Port(e.source(), e.weight().from_port))
+                        .map(|e| {
+                            let w = e.weight();
                             (
-                                p,
-                                node.edge_midpoint(port.1, &self.nodes[&p.0], p.1)
-                                    .distance_squared(pos),
+                                Port(e.target(), w.to_port),
+                                node.edge_midpoint(
+                                    w.from_port,
+                                    &self.graph()[e.target()],
+                                    w.to_port,
+                                )
+                                .distance_squared(pos),
                             )
                         })
                         .min_by(|(_, d), (_, e)| d.total_cmp(e))?
@@ -249,23 +287,24 @@ impl GraphWidget for GraphCore {
         count: isize,
     ) -> Option<(NonZeroIsize, WPort<Self>)> {
         let (anchor, &port) = edge.anchor_port();
-        let node = &self.nodes[&port.0];
-        let ports = match anchor {
+        let node = &self.graph()[port.0];
+        let mut ports: Vec<_> = match anchor {
             Side::In => return None,
-            Side::Out => &node.out_edges[port.1],
+            Side::Out => self
+                .graph()
+                .edge_references()
+                .filter(|e| edge.from == Port(e.source(), e.weight().from_port))
+                .map(|e| {
+                    let w = e.weight();
+                    (
+                        Port(e.target(), w.to_port),
+                        node.edge_midpoint(w.from_port, &self.graph()[e.target()], w.to_port),
+                    )
+                })
+                .collect(),
         };
 
-        let mut sorted: Vec<_> = ports
-            .iter()
-            .map(|&p| {
-                let n = &self.nodes[&p.0];
-                (p, match anchor {
-                    Side::In => n.edge_midpoint(p.1, node, port.1),
-                    Side::Out => node.edge_midpoint(port.1, n, p.1),
-                })
-            })
-            .collect();
-        sorted.sort_unstable_by(|(p1, o1), (p2, o2)| {
+        ports.sort_unstable_by(|(p1, o1), (p2, o2)| {
             o1.y.total_cmp(&o2.y)
                 .then_with(|| o1.x.total_cmp(&o2.x))
                 .then_with(|| p1.0.cmp(&p2.0))
@@ -273,7 +312,7 @@ impl GraphWidget for GraphCore {
         });
 
         let port = *edge.free_port();
-        let idx = sorted
+        let idx = ports
             .iter()
             .enumerate()
             .find_map(|(i, (p, _))| (*p == port).then_some(i))
@@ -281,10 +320,10 @@ impl GraphWidget for GraphCore {
 
         let res = idx
             .saturating_add_signed(count)
-            .min(sorted.len().checked_sub(1)?);
+            .min(ports.len().checked_sub(1)?);
 
         #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, sorted[res].0))
+        NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, ports[res].0))
     }
 
     fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, ctx: &mut EventCtx) {
@@ -292,11 +331,13 @@ impl GraphWidget for GraphCore {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
                 self.pan.center_on(match *cursor {
-                    Cursor::Node(n) => self.nodes[&n].rect().center(),
-                    Cursor::Port(SidedPort(s, Port(n, p))) => self.nodes[&n].port_pos(p, s),
-                    Cursor::Edge(e) => {
-                        self.nodes[&e.from.0].edge_midpoint(e.from.1, &self.nodes[&e.to.0], e.to.1)
-                    },
+                    Cursor::Node(n) => self.graph()[n].rect().center(),
+                    Cursor::Port(SidedPort(s, Port(n, p))) => self.graph()[n].port_pos(p, s),
+                    Cursor::Edge(e) => self.graph()[e.from.0].edge_midpoint(
+                        e.from.1,
+                        &self.graph()[e.to.0],
+                        e.to.1,
+                    ),
                     Cursor::FixedPoint(p) => p,
                 });
                 self.zoom.reset();

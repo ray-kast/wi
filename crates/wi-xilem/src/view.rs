@@ -1,115 +1,92 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use masonry::kurbo::Point;
-use wi_core::Port;
+use petgraph::{
+    graph::IndexType,
+    visit::{EdgeRef, IntoEdgeReferences},
+};
 use xilem::{
     core::{View, ViewMarker},
     Pod, ViewCtx,
 };
 
-use crate::widget;
+use crate::{
+    graph::{port_overflow, Graph, GraphMarker, NodeKind},
+    widget,
+};
 
-pub fn graph() -> GraphView {
-    GraphView {
-        nodes: HashMap::new(),
-        fresh_node: 0,
-    }
+pub fn graph_editor<I, W, P, Ix: IndexType>(
+    graph: Checked<Graph<I, W, P, Ix>>,
+) -> GraphEditor<Graph<I, W, P, Ix>> {
+    GraphEditor(graph.0)
 }
 
 #[derive(Debug)]
-pub(super) struct Node {
-    pub(super) pos: Point,
-    pub(super) in_edges: Vec<Option<Port<usize, usize>>>,
-    pub(super) out_arity: usize,
+pub struct Checked<G>(Arc<G>);
+
+impl<G> Checked<G> {
+    #[expect(
+        clippy::missing_safety_doc,
+        reason = "WIP, adding this will suppress missing-docs warnings"
+    )]
+    #[inline]
+    #[must_use]
+    pub const unsafe fn new_unchecked(graph: Arc<G>) -> Self { Self(graph) }
+}
+
+impl<G: GraphMarker> Checked<G> {
+    #[must_use]
+    pub fn new(graph: Arc<G>) -> Self {
+        let g = graph.as_graph();
+
+        for node in g.node_weights() {
+            match &node.kind {
+                NodeKind::Widget(_) => (),
+                NodeKind::Small(s) => {
+                    u16::try_from(s.inputs.len()).unwrap_or_else(|_| port_overflow());
+                    u16::try_from(s.outputs.len()).unwrap_or_else(|_| port_overflow());
+                },
+                NodeKind::Large(l) => {
+                    u16::try_from(l.inputs.len()).unwrap_or_else(|_| port_overflow());
+                    u16::try_from(l.outputs.len()).unwrap_or_else(|_| port_overflow());
+                },
+            }
+        }
+
+        for edge in g.edge_references() {
+            let weight = edge.weight();
+
+            assert!(
+                weight.from_port < g[edge.source()].out_arity(),
+                "Invalid edge source port index"
+            );
+            assert!(
+                weight.to_port < g[edge.target()].in_arity(),
+                "Invalid edge target port index"
+            );
+        }
+
+        Self(graph)
+    }
 }
 
 #[must_use]
 #[derive(Debug)]
-pub struct GraphView {
-    pub(super) nodes: HashMap<usize, Node>,
-    fresh_node: usize,
-}
+pub struct GraphEditor<G>(pub(super) Arc<G>);
 
-impl GraphView {
-    pub fn with(mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> Self {
-        f(&mut self);
-        self
-    }
-
-    pub fn node(&mut self, pos: Point, in_arity: usize, out_arity: usize) -> &mut Self {
-        use std::collections::hash_map::Entry;
-
-        assert!(
-            self.fresh_node != usize::MAX,
-            "Maximum node count exceeded!"
-        );
-
-        let node = Node {
-            pos,
-            in_edges: vec![None; in_arity],
-            out_arity,
-        };
-
-        let Entry::Vacant(v) = self.nodes.entry(self.fresh_node) else {
-            unreachable!();
-        };
-
-        v.insert(node);
-        self.fresh_node += 1;
-
-        self
-    }
-
-    pub fn edge(&mut self, from: (usize, usize), to: (usize, usize)) -> &mut Self {
-        let (node, port) = from;
-        assert!(port < self.nodes[&node].out_arity, "Invalid edge from-port");
-        let from = Port(node, port);
-
-        let (node, port) = to;
-        assert!(
-            self.nodes.get_mut(&node).unwrap().in_edges[port]
-                .replace(from)
-                .is_none(),
-            "Attempted to insert duplicate edge"
-        );
-
-        self
-    }
-
-    pub(crate) fn out_edge_map(&self) -> HashMap<usize, Vec<Vec<Port<usize, usize>>>> {
-        self.nodes.iter().fold(
-            self.nodes
-                .iter()
-                .map(|(&k, v)| (k, vec![vec![]; v.out_arity]))
-                .collect(),
-            |mut h, (&node, v)| {
-                for (port, edge) in v.in_edges.iter().enumerate() {
-                    let Some(edge) = edge else { continue };
-
-                    h.get_mut(&edge.0).unwrap_or_else(|| unreachable!())[edge.1]
-                        .push(Port(node, port));
-                }
-
-                h
-            },
-        )
-    }
-}
-
-impl ViewMarker for GraphView {}
-impl<S, A> View<S, A, ViewCtx> for GraphView {
-    type Element = Pod<widget::Graph>;
+impl<G: GraphMarker> ViewMarker for GraphEditor<G> {}
+impl<S, A, G: GraphMarker + 'static> View<S, A, ViewCtx> for GraphEditor<G> {
+    type Element = Pod<widget::GraphEditor<G>>;
     type ViewState = ();
 
     fn build(&self, ctx: &mut ViewCtx) -> (Self::Element, Self::ViewState) {
-        let graph = widget::Graph::new(self);
+        let graph = widget::GraphEditor::new(self);
         (ctx.with_action_widget(|c| c.new_pod(graph)), ())
     }
 
     fn rebuild(
         &self,
         _prev: &Self,
-        _view_state: &mut Self::ViewState,
+        (): &mut Self::ViewState,
         _ctx: &mut ViewCtx,
         _element: xilem::core::Mut<'_, Self::Element>,
     ) {
@@ -118,20 +95,20 @@ impl<S, A> View<S, A, ViewCtx> for GraphView {
 
     fn teardown(
         &self,
-        _view_state: &mut Self::ViewState,
-        _ctx: &mut ViewCtx,
-        _element: xilem::core::Mut<'_, Self::Element>,
+        (): &mut Self::ViewState,
+        ctx: &mut ViewCtx,
+        element: xilem::core::Mut<'_, Self::Element>,
     ) {
-        todo!()
+        ctx.teardown_leaf(element);
     }
 
     fn message(
         &self,
-        _view_state: &mut Self::ViewState,
+        (): &mut Self::ViewState,
         _id_path: &[xilem::core::ViewId],
         _message: xilem::core::DynMessage,
         _app_state: &mut S,
-    ) -> xilem::core::MessageResult<A, xilem::core::DynMessage> {
+    ) -> xilem::core::MessageResult<A> {
         todo!()
     }
 }

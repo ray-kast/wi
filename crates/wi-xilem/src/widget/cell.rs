@@ -8,9 +8,13 @@ use wi_core::{
     Port, SidedPort,
 };
 
-use super::{core::GraphCore, node::Node};
+use super::core::EditorCore;
+use crate::{
+    graph::GraphMarker,
+    widget::node::{NodeExt, NodeWidget},
+};
 
-impl GraphEuclidean for GraphCore {
+impl<G: GraphMarker> GraphEuclidean for EditorCore<G> {
     type Scalar = f64;
     type Vector = Vec2;
 
@@ -32,16 +36,18 @@ impl GraphEuclidean for GraphCore {
         match *anchor {
             Anchor::Fixed => Point::ZERO,
             Anchor::Node(n) => {
-                let node = &self.nodes[&n];
-                node.pos + Vec2::new(node.size().width * 0.5, Node::PORT_Y_OFFS)
+                let node = &self.graph()[n];
+                node.position
+                    + Vec2::new(node.outer_size().width * 0.5, 0.0)
+                    + Vec2::new(0.0, node.padding().y0)
             },
-            Anchor::Port(SidedPort(s, Port(n, p))) => self.nodes[&n].port_pos(p, s),
+            Anchor::Port(SidedPort(s, Port(n, p))) => self.graph()[n].port_pos(p, s),
             Anchor::Edge(i, o) => {
                 let Port(from_node, from_port) = i;
                 let Port(to_node, to_port) = o;
 
-                let from_node = &self.nodes[&from_node];
-                let to_node = &self.nodes[&to_node];
+                let from_node = &self.graph()[from_node];
+                let to_node = &self.graph()[to_node];
 
                 from_node.edge_midpoint(from_port, to_node, to_port)
             },
@@ -49,10 +55,16 @@ impl GraphEuclidean for GraphCore {
     }
 }
 
-pub type Cell = wi_core::cell::euclidean::WCell<GraphCore>;
+pub type Cell<G> = wi_core::cell::euclidean::WCell<EditorCore<G>>;
 
-pub fn debug(cell: &Cell, graph: &GraphCore, scene: &mut Scene, tf: Affine, weight: f64) {
-    let Cell {
+pub fn debug<G: GraphMarker>(
+    cell: &Cell<G>,
+    graph: &EditorCore<G>,
+    scene: &mut Scene,
+    tf: Affine,
+    weight: f64,
+) {
+    let Cell::<G> {
         saved_port,
         saved_edge,
         state,

@@ -28,7 +28,13 @@ pub mod accept {
         type Output = B::Output;
 
         #[inline]
-        fn pending_op(&self) -> &'static str { self.inner.pending_op() }
+        fn pending_op(&self) -> &'static str {
+            if self.over == B::default() {
+                self.inner.pending_op()
+            } else {
+                self.over.pending_op()
+            }
+        }
 
         #[inline]
         fn accept(&mut self, input: T) -> Self::Output {
