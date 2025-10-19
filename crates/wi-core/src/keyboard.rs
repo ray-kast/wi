@@ -23,7 +23,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(mode = ?self.mode.kind(), pending = ?self.mode.pending_op()),
+        fields(mode = ?self.mode, pending = ?self.mode.pending_op()),
     )]
     #[inline]
     pub fn handle_char_input(
@@ -47,7 +47,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(mode = ?self.mode.kind(), pending = ?self.mode.pending_op()),
+        fields(mode = ?self.mode, pending = ?self.mode.pending_op()),
     )]
     #[inline]
     pub fn handle_named_keypress(

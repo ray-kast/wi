@@ -28,89 +28,100 @@ use NamedKey as K;
 use crate::modifiers::*;
 
 trie! {
-    #[advance = Nop]
-    #[fallthrough = Nop]
-    pub fn ConnectAccept(k: Key) -> Action {
-        _ => yield,
+    input = Key;
+    acceptor = crate::trie::Acceptor;
+
+    token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
+    token Home = N(K::Home, M_NONE);
+
+    token ConnectMode = C('c', M_SHIFT);
+    token DeleteOp = C('d', M_NONE) => "d";
+    token GoOp = C('g', M_NONE) => "g";
+    token ViewOp = C('z', M_NONE) => "z";
+
+    token Left = C('h', M_NONE) | N(K::ArrowLeft, M_NONE);
+    token Down = C('j', M_NONE) | N(K::ArrowDown, M_NONE);
+    token Up = C('k', M_NONE) | N(K::ArrowUp, M_NONE);
+    token Right = C('l', M_NONE) | N(K::ArrowRight, M_NONE);
+
+    token Opposite = C('%', M_NONE | M_SHIFT);
+
+    token In = C('i', M_NONE);
+    token Out = C('o', M_NONE);
+
+    token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
+    token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
+
+    pub grammar Connect: Action {
+        advance = Nop;
+
+        extend Motion;
+        extend Global;
     }
 
-    #[advance = Nop]
-    #[fallthrough = Nop]
-    pub fn NormalAccept(k: Key) -> Action {
-        C('c', M_SHIFT) => yield SetMode(ModeKind::Connect),
+    pub grammar Normal: Action {
+        advance = Nop;
 
-        C('d', M_NONE) => Delete @ "d" {
-            _ => yield,
-        },
-        C('g', M_NONE) => Go @ "g" {
-            _ => yield,
-        },
+        ConnectMode => yield SetMode(ModeKind::Connect);
 
-        _ => yield,
+        DeleteOp {}
+        GoOp {}
+
+        extend Motion;
+        extend Global;
     }
 
-    #[advance = Nop]
-    pub fn MotionAccept(k: Key) -> Motion {
-        C('h', M_NONE) | N(K::ArrowLeft, M_NONE) => yield StepCursor(Step::Left),
-        C('j', M_NONE) | N(K::ArrowDown, M_NONE) => yield StepCursor(Step::Down),
-        C('k', M_NONE) | N(K::ArrowUp, M_NONE) => yield StepCursor(Step::Up),
-        C('l', M_NONE) | N(K::ArrowRight, M_NONE) => yield StepCursor(Step::Right),
+    pub grammar Motion: Motion {
+        advance = Nop;
 
-        C('%', M_SHIFT) => yield GoToOpposite,
+        Left => yield StepCursor(Step::Left);
+        Down => yield StepCursor(Step::Down);
+        Up => yield StepCursor(Step::Up);
+        Right => yield StepCursor(Step::Right);
 
-        C('i', M_NONE) => yield JumpToPort(Side::In),
-        C('o', M_NONE) => yield JumpToPort(Side::Out),
+        Opposite => yield GoToOpposite;
 
-        _ => yield,
+        In => yield JumpToPort(Side::In);
+        Out => yield JumpToPort(Side::Out);
     }
 
-    #[advance = Nop]
-    #[fallthrough = Nop]
-    pub fn GlobalAccept(k: Key) -> Action {
-        C(c @ '1'..='9', M_NONE) => Count(PushCount(c)) @ "" {
-            C(c @ '0'..='9', M_NONE) => Count(PushCount(c)) { .. },
-            _ => continue,
-        },
+    pub grammar Global: Action {
+        advance = Nop;
 
-        N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL) => yield SetMode(ModeKind::Normal),
+        'count: DigitNonzero {
+            yield PushCount(c);
 
-        C('z', M_NONE) => View @ "z" {
-            . => yield ViewCursor,
-            C('d', M_NONE) => yield ToggleDebug,
-            _ => yield,
-        },
-        N(K::Home, M_NONE) => yield ViewCursor,
+            Digit => goto 'count, PushCount(c);
 
-        _ => yield,
+            ..continue
+        }
+
+        Escape => yield SetMode(ModeKind::Normal);
+        ViewOp {
+            ViewOp => yield ViewCursor;
+        }
+
+        Home => yield ViewCursor;
     }
 }
 
 mod mode {
     use tracing::debug;
 
-    use super::{ConnectAccept, GlobalAccept, Key, MotionAccept, NormalAccept};
-    use crate::{
-        trie::{accept::Overlay, Acceptor},
-        Action,
-    };
-
-    type WithGlobal<A> = Overlay<GlobalAccept, A>;
+    use super::{ConnectAccept, Key, NormalAccept};
+    use crate::{trie::Acceptor, Action};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
-        Connect {
-            accept: WithGlobal<Overlay<MotionAccept, ConnectAccept>>,
-        },
-        Normal {
-            accept: WithGlobal<Overlay<MotionAccept, NormalAccept>>,
-        },
+        Connect { accept: ConnectAccept },
+        Normal { accept: NormalAccept },
     }
 
     impl Default for Mode {
         #[inline]
         fn default() -> Self {
             Self::Normal {
-                accept: Overlay::default(),
+                accept: NormalAccept::default(),
             }
         }
     }
@@ -123,10 +134,10 @@ mod mode {
 
             *self = match to {
                 ModeKind::Connect => Self::Connect {
-                    accept: Overlay::default(),
+                    accept: ConnectAccept::default(),
                 },
                 ModeKind::Normal => Self::Normal {
-                    accept: Overlay::default(),
+                    accept: NormalAccept::default(),
                 },
             };
 

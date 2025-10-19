@@ -45,7 +45,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bfae7c152994a31dc7d99b8eeac7784a919f71d1b306f4b83217e110fd3824c"
 dependencies = [
  "accesskit",
- "hashbrown",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -56,7 +56,7 @@ checksum = "692dd318ff8a7a0ffda67271c4bd10cf32249656f4e49390db0b26ca92b095f2"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
- "hashbrown",
+ "hashbrown 0.15.5",
  "objc2 0.5.2",
  "objc2-app-kit",
  "objc2-foundation 0.2.2",
@@ -88,7 +88,7 @@ checksum = "70a042b62c9c05bf7b616f015515c17d2813f3ba89978d6f4fc369735d60700a"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
- "hashbrown",
+ "hashbrown 0.15.5",
  "static_assertions",
  "windows 0.61.3",
  "windows-core 0.61.2",
@@ -908,7 +908,7 @@ checksum = "64763d1f274c8383333851435b6cdf071c31cfcdb39fd5860d20943205a007a7"
 dependencies = [
  "bytemuck",
  "fontconfig-cache-parser",
- "hashbrown",
+ "hashbrown 0.15.5",
  "icu_locid",
  "memmap2",
  "objc2 0.6.2",
@@ -1122,7 +1122,7 @@ checksum = "b89c83349105e3732062a895becfc71a8f921bb71ecbbdd8ff99263e3b53a0ca"
 dependencies = [
  "bitflags 2.9.4",
  "gpu-descriptor-types",
- "hashbrown",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -1154,6 +1154,12 @@ dependencies = [
  "equivalent",
  "foldhash",
 ]
+
+[[package]]
+name = "hashbrown"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 
 [[package]]
 name = "heck"
@@ -1205,12 +1211,12 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.11.3"
+version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92119844f513ffa41556430369ab02c295a3578af21cf945caa3e9e0c2481ac3"
+checksum = "6717a8d2a5a929a1a2eb43a12812498ed141a0bcfb7e8f7844fbdbe4303bba9f"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.16.0",
 ]
 
 [[package]]
@@ -1545,7 +1551,7 @@ dependencies = [
  "spirv",
  "strum",
  "termcolor",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "unicode-xid",
 ]
 
@@ -2000,7 +2006,7 @@ checksum = "e28dadbe655332fd7d996794ec8d0c376695f6ca47bc75aa01e0967c7f28e42a"
 dependencies = [
  "accesskit",
  "fontique",
- "hashbrown",
+ "hashbrown 0.15.5",
  "peniko",
  "skrifa 0.31.3",
  "swash",
@@ -2036,7 +2042,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
 dependencies = [
  "fixedbitset",
- "hashbrown",
+ "hashbrown 0.15.5",
  "indexmap",
  "serde",
 ]
@@ -2189,9 +2195,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.40"
+version = "1.0.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
+checksum = "ce25767e7b499d1b604768e7cde645d14cc8584231ea6b295e9c9eb22c02e1d1"
 dependencies = [
  "proc-macro2",
 ]
@@ -2587,9 +2593,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.106"
+version = "2.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ede7c438028d4436d71104916910f5bb611972c5cfd7f89b8300a8186e6fada6"
+checksum = "2a26dbd934e5451d21ef060c018dae56fc073894c5a7896f882928a76e6d081b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2635,11 +2641,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.16"
+version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3467d614147380f2e4e374161426ff399c91084acd2363eaf549172b3d5e60c0"
+checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl 2.0.16",
+ "thiserror-impl 2.0.17",
 ]
 
 [[package]]
@@ -2655,9 +2661,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.16"
+version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c5e1be1c48b9172ee610da68fd9cd2770e7a4056cb3fc98710ee6906f0c7960"
+checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2850,7 +2856,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "763eff3405d1a42f646c08a8139bdebd5311f3a84319468cdd212d96cfa0dc2d"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -2933,7 +2939,7 @@ dependencies = [
  "png",
  "skrifa 0.35.0",
  "static_assertions",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "vello_encoding",
  "vello_shaders",
  "wgpu",
@@ -2960,7 +2966,7 @@ checksum = "b2ebea426bb2f95b7610bca09178b03d809ede1d3c500a9acf6eca43e8f200be"
 dependencies = [
  "bytemuck",
  "naga",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "vello_encoding",
 ]
 
@@ -3251,7 +3257,7 @@ dependencies = [
  "raw-window-handle",
  "rustc-hash 1.1.0",
  "smallvec",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "wgpu-hal",
  "wgpu-types",
 ]
@@ -3294,7 +3300,7 @@ dependencies = [
  "renderdoc-sys",
  "rustc-hash 1.1.0",
  "smallvec",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "wasm-bindgen",
  "web-sys",
  "wgpu-types",
@@ -3322,6 +3328,18 @@ dependencies = [
  "keyboard-types",
  "num-traits",
  "tracing",
+ "wi-macros",
+]
+
+[[package]]
+name = "wi-macros"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

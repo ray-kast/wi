@@ -5,10 +5,7 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{
-    bindings::ModeKind, selection::Selection, trie::accept::Priority, GraphWidget,
-    GraphWidgetDriver,
-};
+use crate::{bindings::ModeKind, selection::Selection, GraphWidget, GraphWidgetDriver};
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
@@ -18,7 +15,6 @@ pub mod prelude {
         cursor::actions::*,
         jump::actions::*,
         selection::{Selection, SelectionExt},
-        trie::accept::Priority,
     };
 
     pub fn run_with_count(
@@ -66,7 +62,6 @@ mod imp {
     use super::prelude::*;
     use crate::{
         selection::{NullSelection, Selection},
-        trie::accept::HasPriority,
         GraphWidget,
     };
 
@@ -74,9 +69,6 @@ mod imp {
     pub trait EditorAction {
         #[inline]
         fn is_silent(&self) -> bool { false }
-
-        #[inline]
-        fn priority(&self) -> Priority { Priority::Accept }
 
         fn name(&self) -> Cow<'static, str>;
 
@@ -102,11 +94,6 @@ mod imp {
         ViewCursor,
     }
 
-    impl HasPriority for Action {
-        #[inline]
-        fn priority(&self) -> Priority { EditorAction::priority(self) }
-    }
-
     impl Default for Action {
         #[inline]
         fn default() -> Self { Self::Unhandled(Unhandled) }
@@ -122,9 +109,6 @@ mod imp {
     pub trait EditorMotion {
         fn name(&self) -> Cow<'static, str>;
 
-        #[inline]
-        fn priority(&self) -> Priority { Priority::Accept }
-
         fn process<W: GraphWidget + ?Sized, S: Selection>(
             self,
             count: Option<NonZeroU32>,
@@ -136,9 +120,6 @@ mod imp {
     impl<T: EditorMotion> EditorAction for T {
         #[inline]
         fn is_silent(&self) -> bool { true }
-
-        #[inline]
-        fn priority(&self) -> Priority { EditorMotion::priority(self) }
 
         #[inline]
         fn name(&self) -> Cow<'static, str> { EditorMotion::name(self) }
@@ -196,9 +177,6 @@ mod actions {
 impl EditorAction for actions::Nop {
     #[inline]
     fn is_silent(&self) -> bool { true }
-
-    #[inline]
-    fn priority(&self) -> Priority { Priority::Nop }
 
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<nop>".into() }
@@ -267,9 +245,6 @@ impl EditorAction for actions::ToggleDebug {
 }
 
 impl EditorMotion for actions::Unhandled {
-    #[inline]
-    fn priority(&self) -> Priority { Priority::Reject }
-
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<unhandled>".into() }
 
