@@ -967,14 +967,7 @@ impl Context<'_> {
                 },
                 ParsedNode::Branch(b @ ParsedBranch { out: Some(o), .. }) => {
                     branches = vec![(b, extend_ident)];
-                    advance = Some(self.convert_output_expr(
-                        o,
-                        extend_ident,
-                        &node_cx.accept_ty,
-                        &node_cx.extend_convs,
-                        &mut node_cx.conv_fn_names,
-                        &mut node_cx.accept_items,
-                    ));
+                    advance = Some(self.convert_output_expr(o, extend_ident, node_cx));
                     break;
                 },
                 ParsedNode::Branch(b @ ParsedBranch { out: None, .. }) => {
@@ -1028,45 +1021,30 @@ impl Context<'_> {
         extend_ident: Option<&'a Ident>,
         node_cx: &mut NodeCx<'a>,
     ) -> TokenStream {
-        let state_ty = &node_cx.state_ty;
-        let start_state = &node_cx.start_state;
-
         match out {
             Output::Expr(_, e) => {
-                let out = self.convert_output_expr(
-                    e,
-                    extend_ident,
-                    &node_cx.accept_ty,
-                    &node_cx.extend_convs,
-                    &mut node_cx.conv_fn_names,
-                    &mut node_cx.accept_items,
-                );
+                let out = self.convert_output_expr(e, extend_ident, node_cx);
+                let state_ty = &node_cx.state_ty;
+                let start_state = &node_cx.start_state;
 
                 quote_spanned! { e.span() => (#state_ty::#start_state, #out) }
             },
             Output::Goto(g, l, o) => {
+                let out = o.as_ref().map_or_else(
+                    || default_output(g.span()),
+                    |o| self.convert_output_expr(&o.1, extend_ident, node_cx),
+                );
+
                 let free = node_cx.label_states.len();
                 let next = node_cx
                     .label_states
                     .entry((extend_ident, l))
                     .or_insert_with(|| StateIdent::Const(state_const_name(free, l.span())));
 
-                let out = o.as_ref().map_or_else(
-                    || default_output(g.span()),
-                    |o| {
-                        self.convert_output_expr(
-                            &o.1,
-                            extend_ident,
-                            &node_cx.accept_ty,
-                            &node_cx.extend_convs,
-                            &mut node_cx.conv_fn_names,
-                            &mut node_cx.accept_items,
-                        )
-                    },
-                );
-
                 match next {
                     StateIdent::Variant(i) => {
+                        let state_ty = &node_cx.state_ty;
+
                         quote_spanned! { g.span() => (#state_ty::#i, #out) }
                     },
                     StateIdent::Const(i) => {
@@ -1074,8 +1052,13 @@ impl Context<'_> {
                     },
                 }
             },
-            Output::Continue(c) => quote_spanned! { c.span() =>
-                { *__state = #state_ty::#start_state; continue; }
+            Output::Continue(c) => {
+                let state_ty = &node_cx.state_ty;
+                let start_state = &node_cx.start_state;
+
+                quote_spanned! { c.span() =>
+                    { *__state = #state_ty::#start_state; continue; }
+                }
             },
         }
     }
@@ -1084,19 +1067,17 @@ impl Context<'_> {
         &self,
         out: &Expr,
         extend_ident: Option<&'a Ident>,
-        self_ty: &Ident,
-        extend_convs: &ExtendConvs,
-        fn_names: &mut HashMap<&'a Ident, Ident>,
-        items: &mut TokenStream,
+        node_cx: &mut NodeCx<'a>,
     ) -> TokenStream {
         if let Some(i) = extend_ident {
             use std::collections::hash_map::Entry;
 
-            let free = fn_names.len();
-            let conv_fn = match fn_names.entry(i) {
+            let free = node_cx.conv_fn_names.len();
+            let conv_fn = match node_cx.conv_fn_names.entry(i) {
                 Entry::Occupied(o) => &*o.into_mut(),
                 Entry::Vacant(v) => {
-                    let (pat, block) = extend_convs
+                    let (pat, block) = node_cx
+                        .extend_convs
                         .get(i)
                         .unwrap_or_else(|| unreachable!())
                         .map_or_else(
@@ -1113,13 +1094,14 @@ impl Context<'_> {
 
                     let fn_name = conv_fn_name(free, i.span());
                     let extend_ty = accept_ty(i);
+                    let accept_ty = &node_cx.accept_ty;
                     let input_ty = &self.input_ty;
                     let acceptor_path = &self.acceptor_path;
 
-                    items.extend(quote_spanned! { i.span() =>
+                    node_cx.accept_items.extend(quote_spanned! { i.span() =>
                         fn #fn_name(
                             #pat: <#extend_ty as #acceptor_path<#input_ty>>::Output,
-                        ) -> <#self_ty as #acceptor_path<#input_ty>>::Output #block
+                        ) -> <#accept_ty as #acceptor_path<#input_ty>>::Output #block
                     });
 
                     v.insert(fn_name)
