@@ -1,5 +1,5 @@
 use masonry::core::{PointerInfo, PointerState};
-use xilem::dpi::PhysicalPosition;
+use masonry::dpi::PhysicalPosition;
 
 #[derive(Debug)]
 struct Drag<T> {

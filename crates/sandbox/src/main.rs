@@ -1,7 +1,7 @@
 use masonry::kurbo::Point;
 use wi_xilem::{
-    graph::{Edge, Graph, NodeStyle, Port},
-    graph_editor, Checked,
+    graph::{Checked, Edge, Graph, NodeStyle, Port},
+    view::graph_editor,
 };
 use xilem::{
     view::{flex, FlexExt},

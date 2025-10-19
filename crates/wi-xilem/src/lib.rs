@@ -1,5 +1,3 @@
-pub mod graph;
-mod view;
-pub mod widget;
+pub mod view;
 
-pub use view::*;
+pub use wi_masonry::*;

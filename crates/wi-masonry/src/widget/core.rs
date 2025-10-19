@@ -2,18 +2,18 @@ use std::{mem, num::NonZeroIsize, sync::Arc};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, WidgetPod},
+    dpi::PhysicalPosition,
     kurbo::{Affine, Point, Rect, Size, Vec2},
     widgets::Flex,
 };
 use petgraph::{
-    graph::NodeIndex,
-    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
+    prelude::*,
+    visit::{IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
     Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, WCursor,
     WEdgeCursor, WPort, WSidedPort,
 };
-use xilem::dpi::PhysicalPosition;
 
 use super::{
     cell::Cell,
@@ -41,8 +41,7 @@ macro_rules! make_mut {
 }
 
 impl<N: Node> EditorCore<N> {
-    pub fn new(graph: &crate::GraphEditor<N>) -> Self {
-        let graph = Arc::clone(&graph.0);
+    pub fn new(graph: Arc<Graph<N>>) -> Self {
         let pan = graph
             .node_weights()
             .fold(None, |r: Option<Rect>, n| {

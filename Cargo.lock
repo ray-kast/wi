@@ -3343,7 +3343,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wi-xilem"
+name = "wi-masonry"
 version = "0.1.0"
 dependencies = [
  "accesskit",
@@ -3352,6 +3352,14 @@ dependencies = [
  "smallvec",
  "tracing",
  "wi-core",
+]
+
+[[package]]
+name = "wi-xilem"
+version = "0.1.0"
+dependencies = [
+ "petgraph",
+ "wi-masonry",
  "xilem",
 ]
 

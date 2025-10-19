@@ -1,5 +1,5 @@
 [package]
-name = "wi-xilem"
+name = "wi-masonry"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -7,9 +7,12 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+accesskit.workspace = true
+masonry.workspace = true
 petgraph.workspace = true
-wi-masonry.workspace = true
-xilem.workspace = true
+smallvec.workspace = true
+tracing.workspace = true
+wi-core.workspace = true
 
 [lints]
 workspace = true

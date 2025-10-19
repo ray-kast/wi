@@ -71,7 +71,7 @@ trie! {
         extend Global;
     }
 
-    pub grammar Motion: Motion {
+    grammar Motion: Motion {
         advance = Nop;
 
         Left => yield StepCursor(Step::Left);
@@ -85,7 +85,7 @@ trie! {
         Out => yield JumpToPort(Side::Out);
     }
 
-    pub grammar Global: Action {
+    grammar Global: Action {
         advance = Nop;
 
         'count: DigitNonzero {
@@ -106,10 +106,11 @@ trie! {
 }
 
 mod mode {
+    use keyboard_types::NamedKey;
     use tracing::debug;
 
     use super::{ConnectAccept, Key, NormalAccept};
-    use crate::{trie::Acceptor, Action};
+    use crate::{action::prelude::Nop, trie::Acceptor, Action};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
@@ -176,6 +177,28 @@ mod mode {
         }
 
         fn accept(&mut self, input: Key) -> Self::Output {
+            if matches!(
+                input,
+                Key::Named(
+                    NamedKey::Unidentified
+                        | NamedKey::Alt
+                        | NamedKey::AltGraph
+                        | NamedKey::CapsLock
+                        | NamedKey::Control
+                        | NamedKey::Fn
+                        | NamedKey::FnLock
+                        | NamedKey::Meta
+                        | NamedKey::NumLock
+                        | NamedKey::ScrollLock
+                        | NamedKey::Shift
+                        | NamedKey::Symbol
+                        | NamedKey::SymbolLock,
+                    _
+                )
+            ) {
+                return Nop.into();
+            }
+
             debug!("Handling keypress");
             match self {
                 Self::Connect { accept, .. } => accept.accept(input),

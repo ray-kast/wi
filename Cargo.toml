@@ -12,12 +12,14 @@ license = "AGPL-3.0-or-later"
 accesskit = "0.19"
 keyboard-types = "0.8.1"
 masonry = "0.3.0"
+petgraph = "0.8.3"
 smallvec = "1.15.1"
 tracing = "0.1.41"
 xilem = "0.3.0"
 
 wi-core = { path = "crates/wi-core" }
 wi-macros = { path = "crates/wi-macros" }
+wi-masonry = { path = "crates/wi-masonry" }
 wi-xilem = { path = "crates/wi-xilem" }
 
 [workspace.lints.rust]

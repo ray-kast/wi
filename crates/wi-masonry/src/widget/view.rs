@@ -4,7 +4,7 @@ use masonry::{
     core::{EventCtx, PointerInfo, PointerState, ScrollDelta},
     kurbo::{Point, Size, Vec2},
 };
-use xilem::dpi::PhysicalPosition;
+use masonry::dpi::PhysicalPosition;
 
 use super::drag::DragHandler;
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
@@ -9,10 +11,7 @@ use masonry::{
     peniko::{color::OpaqueColor, BlendMode, Brush, Fill},
     vello::Scene,
 };
-use petgraph::{
-    graph::NodeIndex,
-    visit::{EdgeRef, IntoEdgeReferences, IntoNodeReferences},
-};
+use petgraph::{prelude::*, visit::{IntoEdgeReferences, IntoNodeReferences}};
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
@@ -21,7 +20,7 @@ use wi_core::{
 
 use self::{core::EditorCore, edge::Edge};
 use crate::{
-    graph::{self, InputLabel, Node, NodeLabel, NodeStyle, OutputLabel},
+    graph::{self, Graph, InputLabel, Node, NodeLabel, NodeStyle, OutputLabel},
     widget::node::NodeExt,
 };
 
@@ -43,7 +42,7 @@ pub struct GraphEditor<N: Node> {
 impl<N: Node> GraphEditor<N> {
     #[inline]
     #[must_use]
-    pub fn new(graph: &crate::GraphEditor<N>) -> Self {
+    pub fn new(graph: Arc<Graph<N>>) -> Self {
         let core = EditorCore::new(graph);
         Self {
             driver: GraphWidgetDriver::new(&core),
@@ -188,8 +187,6 @@ impl<N: Node> GraphEditor<N> {
             (_, NodeLabel::Widget(w)) => todo!(),
         }
 
-        {}
-
         scene.pop_layer();
 
         if node.style() == NodeStyle::Large {
@@ -291,7 +288,7 @@ impl<N: Node> GraphEditor<N> {
         weight: f64,
     ) {
         scene.stroke(
-            &Stroke::new(4.0 * weight.max(1.0)),
+            &Stroke::new(5.0 * weight.max(1.0)),
             tf,
             if ctx.is_focus_target() && focused {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)

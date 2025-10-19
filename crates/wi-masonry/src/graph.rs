@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use masonry::kurbo::Point;
-use petgraph::prelude::StableDiGraph;
+use petgraph::{prelude::*, visit::IntoEdgeReferences};
 
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
@@ -128,3 +128,39 @@ pub const PORT_MAX: u16 = u16::MAX;
 #[inline]
 #[expect(clippy::must_use_candidate, reason = "Using this is impossible")]
 pub fn port_overflow<T>() -> T { panic!("Port number exceeded {PORT_MAX}") }
+
+#[derive(Debug)]
+pub struct Checked<G>(Arc<G>);
+
+impl<G> Checked<G> {
+    #[expect(
+        clippy::missing_safety_doc,
+        reason = "WIP, adding this will suppress missing-docs warnings"
+    )]
+    #[inline]
+    #[must_use]
+    pub const unsafe fn new_unchecked(graph: Arc<G>) -> Self { Self(graph) }
+
+    #[must_use]
+    pub fn into_inner(self) -> Arc<G> { self.0 }
+}
+
+impl<N: Node> Checked<Graph<N>> {
+    #[must_use]
+    pub fn new(graph: Arc<Graph<N>>) -> Self {
+        for edge in graph.edge_references() {
+            let weight = edge.weight();
+
+            assert!(
+                weight.from_port < graph[edge.source()].out_arity(),
+                "Invalid edge source port index"
+            );
+            assert!(
+                weight.to_port < graph[edge.target()].in_arity(),
+                "Invalid edge target port index"
+            );
+        }
+
+        Self(graph)
+    }
+}
