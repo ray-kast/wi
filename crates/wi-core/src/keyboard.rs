@@ -1,7 +1,10 @@
 use keyboard_types::{Modifiers, NamedKey as K};
 use tracing::instrument;
 
-use crate::{bindings::Key, trie::Acceptor, GraphWidget, GraphWidgetDriver};
+use crate::{
+    bindings::{Acceptor, Key},
+    GraphWidget, GraphWidgetDriver,
+};
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     #[inline]

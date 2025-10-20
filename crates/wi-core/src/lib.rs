@@ -5,22 +5,18 @@ use std::{
 
 use crate::bindings::Mode;
 pub use crate::{
-    action::Action,
+    actions::Action,
     bindings::ModeKind,
-    cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor},
+    cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     status::Status,
 };
 
-mod action;
+mod actions;
 mod bindings;
-pub mod cell;
 mod cursor;
-mod jump;
 mod keyboard;
 pub mod modifiers;
-mod selection;
 mod status;
-mod trie;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {

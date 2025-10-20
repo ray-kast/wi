@@ -6,7 +6,7 @@ use masonry::{
 };
 use masonry::dpi::PhysicalPosition;
 
-use super::drag::DragHandler;
+use crate::drag::DragHandler;
 
 const SCROLL_PAGE_LINES: f64 = 10.0;
 const SCROLL_LINE_PX: f64 = 16.0;

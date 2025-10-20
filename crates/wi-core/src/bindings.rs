@@ -1,9 +1,16 @@
 use crate::{
-    action::{prelude::*, Action, Motion},
+    actions::{prelude::*, Action, Motion},
     modifiers::M_TCTL,
-    trie::trie,
     Side,
 };
+
+pub trait Acceptor<T>: Default + PartialEq {
+    type Output;
+
+    fn pending_op(&self) -> &'static str;
+
+    fn accept(&mut self, input: T) -> Self::Output;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -23,13 +30,14 @@ pub enum Step {
 
 use Key::{Char as C, Named as N};
 use NamedKey as K;
+use wi_macros::trie;
 
 #[allow(clippy::wildcard_imports)]
 use crate::modifiers::*;
 
 trie! {
     input = Key;
-    acceptor = crate::trie::Acceptor;
+    acceptor = Acceptor;
 
     token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
     token Home = N(K::Home, M_NONE);
@@ -110,7 +118,7 @@ mod mode {
     use tracing::debug;
 
     use super::{ConnectAccept, Key, NormalAccept};
-    use crate::{action::prelude::Nop, trie::Acceptor, Action};
+    use crate::{Action, actions::all::Nop, bindings::Acceptor};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {

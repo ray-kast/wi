@@ -5,17 +5,20 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{bindings::ModeKind, selection::Selection, GraphWidget, GraphWidgetDriver};
+use crate::{bindings::ModeKind, cursor::Selection, GraphWidget, GraphWidgetDriver};
+
+mod cursor;
+mod jump;
+
+pub mod all {
+    pub use super::{basic::*, cursor::actions::*, jump::actions::*};
+}
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
 
-    pub use super::{actions::*, ActionCx, EditorAction, EditorMotion};
-    pub use crate::{
-        cursor::actions::*,
-        jump::actions::*,
-        selection::{Selection, SelectionExt},
-    };
+    pub use super::{all::*, ActionCx, EditorAction, EditorMotion};
+    pub use crate::cursor::{Selection, SelectionExt};
 
     pub fn run_with_count(
         count: Option<NonZeroU32>,
@@ -61,7 +64,7 @@ mod imp {
 
     use super::prelude::*;
     use crate::{
-        selection::{NullSelection, Selection},
+        cursor::{NullSelection, Selection},
         GraphWidget,
     };
 
@@ -155,7 +158,7 @@ mod imp {
 
 pub use imp::{Action, EditorAction, EditorMotion, Motion};
 
-mod actions {
+mod basic {
     use crate::bindings::ModeKind;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -174,7 +177,7 @@ mod actions {
     pub struct Unhandled;
 }
 
-impl EditorAction for actions::Nop {
+impl EditorAction for basic::Nop {
     #[inline]
     fn is_silent(&self) -> bool { true }
 
@@ -188,7 +191,7 @@ impl EditorAction for actions::Nop {
     }
 }
 
-impl EditorAction for actions::PushCount {
+impl EditorAction for basic::PushCount {
     #[inline]
     fn is_silent(&self) -> bool { true }
 
@@ -207,7 +210,7 @@ impl EditorAction for actions::PushCount {
     }
 }
 
-impl EditorAction for actions::SetMode {
+impl EditorAction for basic::SetMode {
     #[inline]
     fn is_silent(&self) -> bool { true }
 
@@ -228,7 +231,7 @@ impl EditorAction for actions::SetMode {
     }
 }
 
-impl EditorAction for actions::ToggleDebug {
+impl EditorAction for basic::ToggleDebug {
     #[inline]
     fn is_silent(&self) -> bool { true }
 
@@ -244,7 +247,7 @@ impl EditorAction for actions::ToggleDebug {
     }
 }
 
-impl EditorMotion for actions::Unhandled {
+impl EditorMotion for basic::Unhandled {
     #[inline]
     fn name(&self) -> Cow<'static, str> { "<unhandled>".into() }
 

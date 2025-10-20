@@ -1,8 +1,9 @@
 use std::borrow::Cow;
 
-use crate::{action::prelude::*, GraphWidget};
+use super::prelude::*;
+use crate::{GraphWidget};
 
-pub mod actions {
+pub(super) mod actions {
     use crate::Side;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

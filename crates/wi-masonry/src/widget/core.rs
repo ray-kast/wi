@@ -17,11 +17,11 @@ use wi_core::{
 
 use super::{
     cell::Cell,
-    drag::DragHandler,
     status::RenderedStatus,
     view::{Pan, Zoom},
 };
 use crate::{
+    drag::DragHandler,
     graph::{Graph, Node},
     widget::node::NodeExt,
 };

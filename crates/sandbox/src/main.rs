@@ -23,6 +23,7 @@ impl wi_xilem::graph::Node for Node {
     type PortShape = ();
     type Widget = ();
 
+    #[inline]
     fn in_arity(&self) -> u16 {
         self.inputs
             .len()
@@ -30,6 +31,7 @@ impl wi_xilem::graph::Node for Node {
             .unwrap_or_else(|_| unreachable!())
     }
 
+    #[inline]
     fn out_arity(&self) -> u16 {
         self.outputs
             .len()
@@ -48,6 +50,7 @@ impl wi_xilem::graph::Node for Node {
         }
     }
 
+    #[inline]
     fn out_port(&self, index: u16) -> Port<'_, Self::PortShape, wi_xilem::graph::OutputLabel<'_>> {
         Port {
             name: self.outputs[usize::from(index)].into(),

@@ -4,7 +4,7 @@ use masonry::{
     vello::Scene,
 };
 use wi_core::{
-    cell::euclidean::{Anchor, GraphEuclidean, State, WAnchor},
+    euclidean_cell::{Anchor, GraphEuclidean, State, WAnchor},
     Port, SidedPort,
 };
 
@@ -52,7 +52,7 @@ impl<N: Node> GraphEuclidean for EditorCore<N> {
     }
 }
 
-pub type Cell<N> = wi_core::cell::euclidean::WCell<EditorCore<N>>;
+pub type Cell<N> = wi_core::euclidean_cell::WCell<EditorCore<N>>;
 
 pub fn debug<N: Node>(
     cell: &Cell<N>,
