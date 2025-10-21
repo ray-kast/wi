@@ -1,5 +1,7 @@
-use masonry::core::{PointerInfo, PointerState};
-use masonry::dpi::PhysicalPosition;
+use masonry::{
+    core::{PointerInfo, PointerState},
+    dpi::PhysicalPosition,
+};
 
 #[derive(Debug)]
 struct Drag<T> {

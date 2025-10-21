@@ -2,9 +2,9 @@ use std::mem;
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, ScrollDelta},
+    dpi::PhysicalPosition,
     kurbo::{Point, Size, Vec2},
 };
-use masonry::dpi::PhysicalPosition;
 
 use crate::drag::DragHandler;
 

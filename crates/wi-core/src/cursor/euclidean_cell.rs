@@ -7,9 +7,9 @@ use crate::{AlignCell, Cursor, GraphWidget, GraphWidgetCell, Port, Side, SidedPo
 /// Implements several functions that enable the use of a euclidean [Cell]
 pub trait GraphEuclidean:
     GraphWidget<
-    Node: PartialEq,
-    PortIdx: PartialEq,
-    Point: Copy + Add<Self::Vector, Output = Self::Point> + Sub<Self::Vector, Output = Self::Point>,
+    NodeId: PartialEq,
+    PortId: PartialEq,
+    Point: Add<Self::Vector, Output = Self::Point> + Sub<Self::Vector, Output = Self::Point>,
 >
 {
     type Scalar: Copy + Num;
@@ -40,7 +40,7 @@ pub enum Anchor<N, P> {
     Edge(Port<N, P>, Port<N, P>),
 }
 
-pub type WAnchor<W> = Anchor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
+pub type WAnchor<W> = Anchor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum State {
@@ -54,22 +54,36 @@ pub enum State {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Cell<Node, PortIdx, Vector> {
-    pub saved_port: Option<(Side, Anchor<Node, PortIdx>, Vector)>,
-    pub saved_edge: Option<(Anchor<Node, PortIdx>, Vector)>,
+pub struct Cell<NodeId, PortId, Vector> {
+    pub saved_port: Option<(Side, Anchor<NodeId, PortId>, Vector)>,
+    pub saved_edge: Option<(Anchor<NodeId, PortId>, Vector)>,
     pub state: State,
-    pub anchor: Anchor<Node, PortIdx>,
+    pub anchor: Anchor<NodeId, PortId>,
     pub offset: Vector,
 }
 
 pub type WCell<W> =
-    Cell<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx, <W as GraphEuclidean>::Vector>;
+    Cell<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId, <W as GraphEuclidean>::Vector>;
 
-impl<Node, PortIdx, Vector> Cell<Node, PortIdx, Vector> {
+impl<NodeId, PortId, Vector> Cell<NodeId, PortId, Vector> {
+    // Vector: Copy feels like it should be inferred from W, but oh well
+    #[inline]
+    pub fn node_target<
+        W: GraphEuclidean<NodeId = NodeId, PortId = PortId, Vector = Vector> + ?Sized,
+    >(
+        &self,
+        widget: &W,
+    ) -> W::Point
+    where
+        Vector: Copy,
+    {
+        widget.anchor_point(&self.anchor) + self.offset
+    }
+
     // Vector: Copy feels like it should be inferred from W, but oh well
     #[inline]
     pub fn port_target<
-        W: GraphEuclidean<Node = Node, PortIdx = PortIdx, Vector = Vector> + ?Sized,
+        W: GraphEuclidean<NodeId = NodeId, PortId = PortId, Vector = Vector> + ?Sized,
     >(
         &self,
         widget: &W,
@@ -89,7 +103,7 @@ impl<Node, PortIdx, Vector> Cell<Node, PortIdx, Vector> {
 
     #[inline]
     pub fn edge_target<
-        W: GraphEuclidean<Node = Node, PortIdx = PortIdx, Vector = Vector> + ?Sized,
+        W: GraphEuclidean<NodeId = NodeId, PortId = PortId, Vector = Vector> + ?Sized,
     >(
         &self,
         widget: &W,
@@ -106,22 +120,20 @@ impl<Node, PortIdx, Vector> Cell<Node, PortIdx, Vector> {
     }
 }
 
-impl<W: GraphEuclidean<Node: Clone, PortIdx: Clone> + ?Sized> GraphWidgetCell<W>
-    for Cell<W::Node, W::PortIdx, W::Vector>
-{
+impl<W: GraphEuclidean + ?Sized> GraphWidgetCell<W> for Cell<W::NodeId, W::PortId, W::Vector> {
     fn of_cursor(_: &W, cursor: &WCursor<W>) -> Self {
         match cursor {
             Cursor::Node(n) => Self {
                 saved_port: None,
                 saved_edge: None,
                 state: State::Node1,
-                anchor: Anchor::Node(n.clone()),
+                anchor: Anchor::Node(*n),
                 offset: W::ZERO_VEC,
             },
             &Cursor::Port(ref p @ SidedPort(s, _)) => {
-                let anchor = Anchor::Port(p.clone());
+                let anchor = Anchor::Port(*p);
                 Self {
-                    saved_port: Some((s, anchor.clone(), W::ZERO_VEC)),
+                    saved_port: Some((s, anchor, W::ZERO_VEC)),
                     saved_edge: None,
                     state: State::Init,
                     anchor,
@@ -129,12 +141,12 @@ impl<W: GraphEuclidean<Node: Clone, PortIdx: Clone> + ?Sized> GraphWidgetCell<W>
                 }
             },
             Cursor::Edge(e) => {
-                let anchor = Anchor::Edge(e.from.clone(), e.to.clone());
+                let anchor = Anchor::Edge(e.from, e.to);
                 let offs = W::ZERO_VEC;
 
                 Self {
                     saved_port: None,
-                    saved_edge: Some((anchor.clone(), offs)),
+                    saved_edge: Some((anchor, offs)),
                     state: State::Init,
                     anchor,
                     offset: offs,
@@ -148,6 +160,11 @@ impl<W: GraphEuclidean<Node: Clone, PortIdx: Clone> + ?Sized> GraphWidgetCell<W>
                 offset: W::point_vec(p),
             },
         }
+    }
+
+    #[inline]
+    fn position(&self, widget: &W) -> <W as GraphWidget>::Point {
+        widget.anchor_point(&self.anchor) + self.offset
     }
 
     fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell) {

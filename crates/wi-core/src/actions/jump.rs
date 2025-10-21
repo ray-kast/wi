@@ -1,7 +1,4 @@
-use std::borrow::Cow;
-
 use super::prelude::*;
-use crate::{GraphWidget};
 
 pub(super) mod actions {
     use crate::Side;

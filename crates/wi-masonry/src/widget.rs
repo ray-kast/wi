@@ -11,7 +11,10 @@ use masonry::{
     peniko::{color::OpaqueColor, BlendMode, Brush, Fill},
     vello::Scene,
 };
-use petgraph::{prelude::*, visit::{IntoEdgeReferences, IntoNodeReferences}};
+use petgraph::{
+    prelude::*,
+    visit::{IntoEdgeReferences, IntoNodeReferences},
+};
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},

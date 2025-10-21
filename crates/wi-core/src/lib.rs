@@ -38,17 +38,19 @@ impl Side {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Port<N, P>(pub N, pub P);
 
-pub type WPort<W> = Port<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
+pub type WPort<W> = Port<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SidedPort<N, P>(pub Side, pub Port<N, P>);
 
-pub type WSidedPort<W> = SidedPort<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
+pub type WSidedPort<W> = SidedPort<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CursorUpdate {
-    Move,
-    CenterInView,
+pub enum Step {
+    Left,
+    Down,
+    Up,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,44 +60,78 @@ pub enum AlignCell {
     KeepCol,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CursorUpdate {
+    Move,
+    CenterInView,
+}
+
 pub trait GraphWidgetCell<W: GraphWidget + ?Sized> {
     fn of_cursor(widget: &W, cursor: &WCursor<W>) -> Self;
+
+    fn position(&self, widget: &W) -> W::Point;
 
     fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell);
 }
 
+// TODO: drop references for types that are Copy
 pub trait GraphWidget {
-    type Node;
-    type PortIdx;
+    type NodeId: Copy + Eq;
+    type PortId: Copy + Eq;
 
     type Cell: GraphWidgetCell<Self>;
-    type Point;
+    type Point: Copy;
 
     type Context<'a>;
 
     fn default_cursor(&self) -> WCursor<Self>;
 
+    fn nearest_node_where<F: Fn(&Self::NodeId) -> bool>(
+        &self,
+        cell: &Self::Cell,
+        pred: F,
+    ) -> Option<Self::NodeId>;
+
+    fn nearest_node(&self, cell: &Self::Cell) -> Option<Self::NodeId> {
+        self.nearest_node_where(cell, |_| true)
+    }
+
     fn nearest_port(
         &self,
-        node: &Self::Node,
+        node: &Self::NodeId,
         side: Side,
         cell: &Self::Cell,
-    ) -> Option<Self::PortIdx>;
+    ) -> Option<Self::PortId>;
 
     fn step_port_by(
         &self,
         port: &WSidedPort<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortIdx)>;
+    ) -> Option<(NonZeroIsize, Self::PortId)>;
 
-    fn nearest_edge(&self, port: &WSidedPort<Self>, cell: &Self::Cell)
-        -> Option<WEdgeCursor<Self>>;
+    fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
+        &self,
+        port: &WSidedPort<Self>,
+        cell: &Self::Cell,
+        pred: F,
+    ) -> Option<WEdgeCursor<Self>>;
+
+    #[inline]
+    fn nearest_edge(
+        &self,
+        port: &WSidedPort<Self>,
+        cell: &Self::Cell,
+    ) -> Option<WEdgeCursor<Self>> {
+        self.nearest_edge_where(port, cell, |_| true)
+    }
 
     fn step_edge_by(
         &self,
         edge: &WEdgeCursor<Self>,
         count: isize,
     ) -> Option<(NonZeroIsize, WPort<Self>)>;
+
+    fn step_point_by(&self, point: &Self::Point, step: Step, count: usize) -> Self::Point;
 
     fn update_cursor(
         &mut self,
@@ -105,6 +141,10 @@ pub trait GraphWidget {
     );
 
     fn update_status(&mut self, status: Status, ctx: &mut Self::Context<'_>);
+
+    fn delete_node(&mut self, node: &Self::NodeId) -> bool;
+
+    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool;
 }
 
 #[must_use]
@@ -120,8 +160,8 @@ pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
 
 impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
 where
-    W::Node: fmt::Debug,
-    W::PortIdx: fmt::Debug,
+    W::NodeId: fmt::Debug,
+    W::PortId: fmt::Debug,
     W::Cell: fmt::Debug,
     W::Point: fmt::Debug,
 {

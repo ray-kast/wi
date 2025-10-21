@@ -11,7 +11,7 @@ use petgraph::{
     visit::{IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
-    Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, WCursor,
+    Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, Step, WCursor,
     WEdgeCursor, WPort, WSidedPort,
 };
 
@@ -22,7 +22,7 @@ use super::{
 };
 use crate::{
     drag::DragHandler,
-    graph::{Graph, Node},
+    graph::{Edge, Graph, Node},
     widget::node::NodeExt,
 };
 
@@ -164,9 +164,9 @@ impl<N: Node> EditorCore<N> {
 impl<N: Node> GraphWidget for EditorCore<N> {
     type Cell = Cell<N>;
     type Context<'a> = EventCtx<'a>;
-    type Node = NodeIndex;
+    type NodeId = NodeIndex;
     type Point = Point;
-    type PortIdx = u16;
+    type PortId = u16;
 
     fn default_cursor(&self) -> WCursor<Self> {
         self.graph
@@ -175,12 +175,31 @@ impl<N: Node> GraphWidget for EditorCore<N> {
             .map_or(Cursor::FixedPoint(Point::ZERO), |(k, _)| Cursor::Node(k))
     }
 
+    fn nearest_node_where<F: Fn(&Self::NodeId) -> bool>(
+        &self,
+        cell: &Self::Cell,
+        pred: F,
+    ) -> Option<Self::NodeId> {
+        let target = cell.node_target(self);
+        self.graph
+            .node_references()
+            .filter(|(i, _)| pred(i))
+            .map(|(i, n)| {
+                (
+                    i,
+                    (n.position() + n.outer_size().to_vec2() * 0.5).distance_squared(target),
+                )
+            })
+            .min_by(|(_, d), (_, e)| d.total_cmp(e))
+            .map(|(i, _)| i)
+    }
+
     fn nearest_port(
         &self,
-        &n: &Self::Node,
+        &n: &Self::NodeId,
         side: Side,
         cell: &Self::Cell,
-    ) -> Option<Self::PortIdx> {
+    ) -> Option<Self::PortId> {
         let node = &self.graph[n];
         let len = match side {
             Side::In => node.in_arity(),
@@ -199,7 +218,7 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         &self,
         port: &WSidedPort<Self>,
         count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortIdx)> {
+    ) -> Option<(NonZeroIsize, Self::PortId)> {
         let SidedPort(side, Port(n, port)) = *port;
         let node = &self.graph[n];
 
@@ -220,48 +239,59 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         NonZeroIsize::new((res.wrapping_sub(port) as i16).into()).map(|d| (d, res))
     }
 
-    fn nearest_edge(
+    fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
         &self,
         port: &WSidedPort<Self>,
         cell: &Self::Cell,
+        pred: F,
     ) -> Option<WEdgeCursor<Self>> {
+        fn edge_cursor<W: GraphWidget>(from: WPort<W>, to: WPort<W>) -> WEdgeCursor<W> {
+            EdgeCursor {
+                from,
+                to,
+                anchor: Side::In,
+            }
+        }
+
         let SidedPort(side, port) = *port;
         let node = &self.graph[port.0];
 
-        let (from, to) = match side {
-            Side::In => (
-                self.graph
-                    .edge_references()
-                    .find(|e| port == Port(e.target(), e.weight().to_port))
-                    .map(|e| Port(e.source(), e.weight().from_port))?,
-                port,
-            ),
+        match side {
+            Side::In => self.graph.edge_references().find_map(|e| {
+                let Edge { from_port, to_port } = *e.weight();
+                if port != Port(e.target(), to_port) {
+                    return None;
+                }
+
+                let cur = edge_cursor::<Self>(Port(e.source(), from_port), port);
+                pred(&cur).then_some(cur)
+            }),
             Side::Out => {
                 let pos = cell.edge_target(self);
-                (
-                    port,
-                    self.graph
-                        .edge_references()
-                        .filter(|e| port == Port(e.source(), e.weight().from_port))
-                        .map(|e| {
-                            let w = e.weight();
-                            (
-                                Port(e.target(), w.to_port),
-                                node.edge_midpoint(w.from_port, &self.graph[e.target()], w.to_port)
-                                    .distance_squared(pos),
-                            )
-                        })
-                        .min_by(|(_, d), (_, e)| d.total_cmp(e))?
-                        .0,
-                )
-            },
-        };
 
-        Some(EdgeCursor {
-            from,
-            to,
-            anchor: Side::In,
-        })
+                self.graph
+                    .edge_references()
+                    .filter_map(|e| {
+                        let Edge { from_port, to_port } = *e.weight();
+                        if port != Port(e.source(), from_port) {
+                            return None;
+                        }
+
+                        let cur = edge_cursor::<Self>(port, Port(e.target(), to_port));
+                        if !pred(&cur) {
+                            return None;
+                        }
+
+                        Some((
+                            cur,
+                            node.edge_midpoint(port.1, &self.graph[cur.to.0], cur.to.1)
+                                .distance_squared(pos),
+                        ))
+                    })
+                    .min_by(|(_, d), (_, e)| d.total_cmp(e))
+                    .map(|(e, _)| e)
+            },
+        }
     }
 
     fn step_edge_by(
@@ -309,6 +339,21 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, ports[res].0))
     }
 
+    fn step_point_by(&self, point: &Self::Point, step: Step, count: usize) -> Self::Point {
+        #![expect(clippy::cast_precision_loss)]
+
+        const STEP: f64 = 16.0;
+
+        *point
+            + (count as f64)
+                * match step {
+                    Step::Left => Vec2::new(-STEP, 0.0),
+                    Step::Down => Vec2::new(0.0, STEP),
+                    Step::Up => Vec2::new(0.0, -STEP),
+                    Step::Right => Vec2::new(STEP, 0.0),
+                }
+    }
+
     fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, ctx: &mut EventCtx) {
         match update {
             CursorUpdate::Move => (),
@@ -330,5 +375,26 @@ impl<N: Node> GraphWidget for EditorCore<N> {
     fn update_status(&mut self, status: Status, ctx: &mut EventCtx) {
         let rendered = RenderedStatus::new(status);
         ctx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
+    }
+
+    #[inline]
+    fn delete_node(&mut self, &node: &Self::NodeId) -> bool {
+        make_mut!(self.graph).remove_node(node).is_some()
+    }
+
+    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool {
+        let Some(e) = self
+            .graph
+            .edges_connecting(from.0, to.0)
+            .find(|e| e.weight().from_port == from.1 && e.weight().to_port == to.1)
+        else {
+            return false;
+        };
+        let e = e.id();
+
+        make_mut!(self.graph)
+            .remove_edge(e)
+            .unwrap_or_else(|| unreachable!());
+        true
     }
 }

@@ -8,17 +8,24 @@ use tracing::{debug, instrument};
 use crate::{bindings::ModeKind, cursor::Selection, GraphWidget, GraphWidgetDriver};
 
 mod cursor;
+mod delete;
 mod jump;
 
 pub mod all {
-    pub use super::{basic::*, cursor::actions::*, jump::actions::*};
+    pub use super::{basic::*, cursor::actions::*, delete::actions::*, jump::actions::*};
 }
 
 pub mod prelude {
-    pub use std::num::{NonZero, NonZeroU32};
+    pub use std::{
+        borrow::Cow,
+        num::{NonZero, NonZeroU32},
+    };
 
-    pub use super::{all::*, ActionCx, EditorAction, EditorMotion};
-    pub use crate::cursor::{Selection, SelectionExt};
+    pub use super::{all::*, Action, ActionCx, EditorAction, EditorMotion, Motion};
+    pub use crate::{
+        cursor::{Selection, SelectionExt},
+        GraphWidget,
+    };
 
     pub fn run_with_count(
         count: Option<NonZeroU32>,
@@ -58,15 +65,10 @@ impl<'w, W: GraphWidget + ?Sized> ActionCx<'_, 'w, W> {
 }
 
 mod imp {
-    use std::borrow::Cow;
-
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
-    use crate::{
-        cursor::{NullSelection, Selection},
-        GraphWidget,
-    };
+    use crate::cursor::NullSelection;
 
     #[enum_dispatch]
     pub trait EditorAction {
@@ -95,6 +97,9 @@ mod imp {
 
         // From cursor
         ViewCursor,
+
+        // From delete
+        DeleteAtCursor,
     }
 
     impl Default for Action {

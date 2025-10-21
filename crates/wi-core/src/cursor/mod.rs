@@ -61,15 +61,15 @@ impl<N, P> EdgeCursor<N, P> {
     }
 }
 
-pub type WEdgeCursor<W> = EdgeCursor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx>;
+pub type WEdgeCursor<W> = EdgeCursor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Cursor<Node, PortIdx, Point> {
-    Node(Node),
-    Port(SidedPort<Node, PortIdx>),
-    Edge(EdgeCursor<Node, PortIdx>),
+pub enum Cursor<NodeId, PortId, Point> {
+    Node(NodeId),
+    Port(SidedPort<NodeId, PortId>),
+    Edge(EdgeCursor<NodeId, PortId>),
     FixedPoint(Point),
 }
 
 pub type WCursor<W> =
-    Cursor<<W as GraphWidget>::Node, <W as GraphWidget>::PortIdx, <W as GraphWidget>::Point>;
+    Cursor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId, <W as GraphWidget>::Point>;

@@ -1,8 +1,4 @@
-use crate::{
-    actions::{prelude::*, Action, Motion},
-    modifiers::M_TCTL,
-    Side,
-};
+use crate::{actions::prelude::*, modifiers::M_TCTL, Side, Step};
 
 pub trait Acceptor<T>: Default + PartialEq {
     type Output;
@@ -19,18 +15,9 @@ pub enum Key {
 }
 
 use keyboard_types::{Modifiers, NamedKey};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
-    Left,
-    Down,
-    Up,
-    Right,
-}
-
+use wi_macros::trie;
 use Key::{Char as C, Named as N};
 use NamedKey as K;
-use wi_macros::trie;
 
 #[allow(clippy::wildcard_imports)]
 use crate::modifiers::*;
@@ -72,7 +59,10 @@ trie! {
 
         ConnectMode => yield SetMode(ModeKind::Connect);
 
-        DeleteOp {}
+        DeleteOp {
+            DeleteOp => yield DeleteAtCursor;
+        }
+
         GoOp {}
 
         extend Motion;
@@ -118,7 +108,7 @@ mod mode {
     use tracing::debug;
 
     use super::{ConnectAccept, Key, NormalAccept};
-    use crate::{Action, actions::all::Nop, bindings::Acceptor};
+    use crate::{actions::all::Nop, bindings::Acceptor, Action};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {

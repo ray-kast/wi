@@ -1,12 +1,10 @@
-use std::borrow::Cow;
-
 use super::prelude::*;
 use crate::{
-    AlignCell, Cursor, CursorUpdate, GraphWidget, GraphWidgetCell, Port, Side, SidedPort, WCursor, bindings::Step
+    AlignCell, Cursor, CursorUpdate, GraphWidgetCell, Port, Side, SidedPort, Step, WCursor,
 };
 
 pub(super) mod actions {
-    use crate::bindings::Step;
+    use crate::Step;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct StepCursor(pub Step);
@@ -43,6 +41,13 @@ fn horiz_side(step: Step) -> Side {
     } else {
         Side::In
     }
+}
+
+#[inline]
+fn unsigned_steps(steps: u32) -> (usize, u32) {
+    let steps = usize::try_from(steps).unwrap_or(usize::MAX);
+    let dec = u32::try_from(steps).unwrap_or_else(|_| unreachable!());
+    (steps, dec)
 }
 
 #[inline]
@@ -166,7 +171,11 @@ impl EditorMotion for actions::StepCursor {
                         Cursor::Edge(e)
                     }
                 },
-                (Cursor::FixedPoint(_p), _s) => todo!(),
+                (Cursor::FixedPoint(p), s) => {
+                    let (count, n) = unsigned_steps(steps.get());
+                    dec = n;
+                    Cursor::FixedPoint(widget.step_point_by(&p, s, count))
+                },
             };
 
             let align = match step {
