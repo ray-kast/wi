@@ -1,10 +1,8 @@
 use std::num::NonZero;
 
-use crate::{
-    actions::Action,
-    bindings::{Acceptor, ModeKind},
-    GraphWidget, GraphWidgetDriver,
-};
+use shibari::Acceptor;
+
+use crate::{actions::Action, bindings::ModeKind, GraphWidget, GraphWidgetDriver};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Status {

@@ -1,18 +1,20 @@
 use super::prelude::*;
+use crate::Side;
 
 pub(super) mod actions {
     use crate::Side;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct JumpToPort(pub Side);
+    pub struct JumpToPort(pub Option<Side>);
 }
 
 impl EditorMotion for actions::JumpToPort {
     fn name(&self) -> Cow<'static, str> {
         let Self(side) = self;
         match side {
-            crate::Side::In => "jump to input",
-            crate::Side::Out => "jump to output",
+            Some(Side::In) => "jump to input",
+            Some(Side::Out) => "jump to output",
+            None => "jump to port",
         }
         .into()
     }

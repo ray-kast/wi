@@ -1,11 +1,54 @@
-use crate::{actions::prelude::*, modifiers::M_TCTL, Side, Step};
+use shibari::AcceptState;
 
-pub trait Acceptor<T>: Default + PartialEq {
-    type Output;
+use crate::{actions::prelude::*, modifiers::M_TCTL, operators::Operator, Step};
 
-    fn pending_op(&self) -> &'static str;
+#[derive(Debug, Clone, Copy)]
+pub enum ActionOut {
+    Trap,
+    Advance,
+    Action(Action),
+    Operator(Operator),
+}
 
-    fn accept(&mut self, input: T) -> Self::Output;
+impl<T: Into<Action>> From<T> for ActionOut {
+    #[inline]
+    fn from(value: T) -> Self { Self::Action(value.into()) }
+}
+
+#[inline]
+fn dispatch_op<T: Into<Operator>>(op: T) -> ActionOut { ActionOut::Operator(op.into()) }
+
+impl AcceptState for ActionOut {
+    const ADVANCE: Self = Self::Advance;
+    const TRAP: Self = Self::Trap;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MotionOut {
+    Trap,
+    Advance,
+    Motion(Motion),
+}
+
+impl<T: Into<Motion>> From<T> for MotionOut {
+    #[inline]
+    fn from(value: T) -> Self { Self::Motion(value.into()) }
+}
+
+impl From<MotionOut> for ActionOut {
+    #[inline]
+    fn from(value: MotionOut) -> Self {
+        match value {
+            MotionOut::Trap => Self::Trap,
+            MotionOut::Advance => Self::Advance,
+            MotionOut::Motion(m) => Self::Action(m.into()),
+        }
+    }
+}
+
+impl AcceptState for MotionOut {
+    const ADVANCE: Self = Self::Advance;
+    const TRAP: Self = Self::Trap;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,24 +58,25 @@ pub enum Key {
 }
 
 use keyboard_types::{Modifiers, NamedKey};
-use wi_macros::trie;
 use Key::{Char as C, Named as N};
 use NamedKey as K;
 
 #[allow(clippy::wildcard_imports)]
 use crate::modifiers::*;
 
-trie! {
+shibari::static_acceptors! {
     input = Key;
-    acceptor = Acceptor;
 
     token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
     token Home = N(K::Home, M_NONE);
 
-    token ConnectMode = C('c', M_SHIFT);
+    token AddOp = C('a', M_NONE) => "a";
+    token ConnectOp = C('c', M_NONE) => "c";
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
+
+    token Debug = C('d', M_NONE);
 
     token Left = C('h', M_NONE) | N(K::ArrowLeft, M_NONE);
     token Down = C('j', M_NONE) | N(K::ArrowDown, M_NONE);
@@ -41,23 +85,12 @@ trie! {
 
     token Opposite = C('%', M_NONE | M_SHIFT);
 
-    token In = C('i', M_NONE);
-    token Out = C('o', M_NONE);
-
     token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
     token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
 
-    pub grammar Connect: Action {
-        advance = Nop;
-
-        extend Motion;
-        extend Global;
-    }
-
-    pub grammar Normal: Action {
-        advance = Nop;
-
-        ConnectMode => yield SetMode(ModeKind::Connect);
+    pub grammar Normal: ActionOut {
+        AddOp {}
+        ConnectOp {}
 
         DeleteOp {
             DeleteOp => yield DeleteAtCursor;
@@ -69,23 +102,16 @@ trie! {
         extend Global;
     }
 
-    grammar Motion: Motion {
-        advance = Nop;
-
+    grammar Motion: MotionOut {
         Left => yield StepCursor(Step::Left);
         Down => yield StepCursor(Step::Down);
         Up => yield StepCursor(Step::Up);
         Right => yield StepCursor(Step::Right);
 
         Opposite => yield GoToOpposite;
-
-        In => yield JumpToPort(Side::In);
-        Out => yield JumpToPort(Side::Out);
     }
 
-    grammar Global: Action {
-        advance = Nop;
-
+    grammar Global: ActionOut {
         'count: DigitNonzero {
             yield PushCount(c);
 
@@ -97,6 +123,7 @@ trie! {
         Escape => yield SetMode(ModeKind::Normal);
         ViewOp {
             ViewOp => yield ViewCursor;
+            Debug => yield ToggleDebug;
         }
 
         Home => yield ViewCursor;
@@ -105,14 +132,13 @@ trie! {
 
 mod mode {
     use keyboard_types::NamedKey;
+    use shibari::Acceptor;
     use tracing::debug;
 
-    use super::{ConnectAccept, Key, NormalAccept};
-    use crate::{actions::all::Nop, bindings::Acceptor, Action};
+    use super::{ActionOut, Key, NormalAccept};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
-        Connect { accept: ConnectAccept },
         Normal { accept: NormalAccept },
     }
 
@@ -132,9 +158,6 @@ mod mode {
             }
 
             *self = match to {
-                ModeKind::Connect => Self::Connect {
-                    accept: ConnectAccept::default(),
-                },
                 ModeKind::Normal => Self::Normal {
                     accept: NormalAccept::default(),
                 },
@@ -146,7 +169,6 @@ mod mode {
         #[inline]
         pub fn kind(self) -> ModeKind {
             match self {
-                Self::Connect { .. } => ModeKind::Connect,
                 Self::Normal { .. } => ModeKind::Normal,
             }
         }
@@ -154,7 +176,6 @@ mod mode {
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum ModeKind {
-        Connect,
         #[default]
         Normal,
     }
@@ -165,11 +186,10 @@ mod mode {
     }
 
     impl Acceptor<Key> for Mode {
-        type Output = Action;
+        type Output = ActionOut;
 
         fn pending_op(&self) -> &'static str {
             match self {
-                Self::Connect { accept, .. } => accept.pending_op(),
                 Self::Normal { accept, .. } => accept.pending_op(),
             }
         }
@@ -194,12 +214,11 @@ mod mode {
                     _
                 )
             ) {
-                return Nop.into();
+                return ActionOut::Advance;
             }
 
             debug!("Handling keypress");
             match self {
-                Self::Connect { accept, .. } => accept.accept(input),
                 Self::Normal { accept, .. } => accept.accept(input),
             }
         }

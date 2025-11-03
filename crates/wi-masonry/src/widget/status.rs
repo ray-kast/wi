@@ -40,7 +40,6 @@ impl RenderedStatus {
 
         let default_mode = matches!(mode, ModeKind::Normal);
         let mode = match mode {
-            ModeKind::Connect => "Connect",
             ModeKind::Normal => "Normal",
         };
 

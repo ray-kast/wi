@@ -1,6 +1,7 @@
 [package]
 name = "wi-masonry"
-version = "0.1.0"
+description = "A vi-style node editor — Masonry widgets"
+version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
 repository.workspace = true

@@ -1,6 +1,6 @@
 use proc_macro::TokenStream as TokenStream1;
 
-mod trie;
+mod static_acceptors;
 
 pub(crate) mod prelude {
     pub use proc_macro2::{Span, TokenStream};
@@ -22,9 +22,9 @@ pub(crate) mod prelude {
 }
 
 #[proc_macro]
-pub fn trie(input: TokenStream1) -> TokenStream1 {
+pub fn static_acceptors(input: TokenStream1) -> TokenStream1 {
     #![expect(clippy::let_and_return)]
-    let out = trie::run(syn::parse_macro_input!(input)).into();
+    let out = static_acceptors::run(syn::parse_macro_input!(input)).into();
     // eprintln!("{out}");
     out
 }

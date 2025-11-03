@@ -5,7 +5,10 @@ use std::{
 
 use tracing::{debug, instrument};
 
-use crate::{bindings::ModeKind, cursor::Selection, GraphWidget, GraphWidgetDriver};
+use crate::{
+    bindings::{ActionOut, ModeKind},
+    GraphWidget, GraphWidgetDriver,
+};
 
 mod cursor;
 mod delete;
@@ -87,24 +90,17 @@ mod imp {
     #[enum_dispatch(EditorAction)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Action {
-        // Local
+        // Basic
         Motion,
-        Nop,
         PushCount,
         SetMode,
         ToggleDebug,
-        Unhandled,
 
         // From cursor
         ViewCursor,
 
         // From delete
         DeleteAtCursor,
-    }
-
-    impl Default for Action {
-        #[inline]
-        fn default() -> Self { Self::Unhandled(Unhandled) }
     }
 
     impl Action {
@@ -144,20 +140,12 @@ mod imp {
     #[enum_dispatch(EditorMotion)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Motion {
-        // Local
-        Unhandled,
-
         // From cursor
         GoToOpposite,
         StepCursor,
 
         // From jump
         JumpToPort,
-    }
-
-    impl Default for Motion {
-        #[inline]
-        fn default() -> Self { Self::Unhandled(Unhandled) }
     }
 }
 
@@ -167,9 +155,6 @@ mod basic {
     use crate::bindings::ModeKind;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct Nop;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct PushCount(pub char);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -177,23 +162,6 @@ mod basic {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct ToggleDebug;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct Unhandled;
-}
-
-impl EditorAction for basic::Nop {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "<nop>".into() }
-
-    #[inline]
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        cx.driver.count = count;
-        true
-    }
 }
 
 impl EditorAction for basic::PushCount {
@@ -222,7 +190,6 @@ impl EditorAction for basic::SetMode {
     fn name(&self) -> Cow<'static, str> {
         let Self(m) = self;
         match m {
-            ModeKind::Connect => "connect mode",
             ModeKind::Normal => "normal mode",
         }
         .into()
@@ -252,33 +219,24 @@ impl EditorAction for basic::ToggleDebug {
     }
 }
 
-impl EditorMotion for basic::Unhandled {
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "<unhandled>".into() }
-
-    #[inline]
-    fn process<W: GraphWidget + ?Sized, S: Selection>(
-        self,
-        _: Option<NonZeroU32>,
-        _: ActionCx<W>,
-        _: S,
-    ) -> bool {
-        false
-    }
-}
-
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
-    #[instrument(
-        skip(self, widget, action, ctx),
-        fields(action = action.name().as_ref(), count = ?self.count),
-    )]
+    #[instrument(skip(self, widget, action, ctx), fields(count = ?self.count))]
     pub fn process_action(
         &mut self,
         widget: &mut W,
-        action: Action,
+        action: ActionOut,
         ctx: &mut W::Context<'_>,
     ) -> bool {
-        debug!("Processing action");
+        let action = match action {
+            ActionOut::Trap => {
+                self.count = None;
+                return false;
+            },
+            ActionOut::Advance => return true,
+            ActionOut::Action(a) => a,
+        };
+
+        debug!(action = action.name().as_ref(), "Processing action");
         let handled = action.process(self.count.take(), ActionCx {
             widget,
             driver: self,

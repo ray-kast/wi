@@ -1,27 +1,25 @@
 use keyboard_types::{Modifiers, NamedKey as K};
+use shibari::Acceptor;
 use tracing::instrument;
 
-use crate::{
-    bindings::{Acceptor, Key},
-    GraphWidget, GraphWidgetDriver,
-};
+use crate::{bindings::Key, GraphWidget, GraphWidgetDriver};
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     #[inline]
-    fn mutate_check(
+    fn mutate_check<T>(
         &mut self,
         widget: &mut W,
         ctx: &mut W::Context<'_>,
-        f: impl FnOnce(&mut Self, &mut W, &mut W::Context<'_>) -> bool,
-    ) -> bool {
+        f: impl FnOnce(&mut Self, &mut W, &mut W::Context<'_>) -> T,
+    ) -> T {
         let pre_status = self.status();
-        let handled = f(self, widget, ctx);
+        let res = f(self, widget, ctx);
 
         if pre_status != self.status() {
             widget.update_status(self.status(), ctx);
         }
 
-        handled
+        res
     }
 
     #[instrument(

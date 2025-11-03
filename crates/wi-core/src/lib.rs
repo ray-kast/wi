@@ -11,11 +11,14 @@ pub use crate::{
     status::Status,
 };
 
+pub extern crate shibari;
+
 mod actions;
 mod bindings;
 mod cursor;
 mod keyboard;
 pub mod modifiers;
+mod operators;
 mod status;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

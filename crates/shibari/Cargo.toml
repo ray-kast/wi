@@ -1,0 +1,19 @@
+[package]
+name = "shibari"
+description = "Tools for complex (keyboard) bindings"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+shibari-grammar.workspace = true
+shibari-macros.workspace = true
+shibari-macros.optional = true
+
+[features]
+proc-macros = ['dep:shibari-macros']
+
+[lints]
+workspace = true

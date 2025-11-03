@@ -5,22 +5,26 @@ resolver = "2"
 [workspace.package]
 authors = ["raykast <me@june-s.net>"]
 edition = "2024"
-repository = "https://git.raykast.club/june/wi"
+repository = "https://github.com/ray-kast/wi"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 accesskit = "0.19"
+hashbrown = "0.16.0"
+indexmap = "2.12.0"
 keyboard-types = "0.8.1"
 masonry = "0.3.0"
 petgraph = "0.8.3"
-smallvec = "1.15.1"
+smallvec = { version = "1.15.1", features = ["const_new"] }
 tracing = "0.1.41"
 xilem = "0.3.0"
 
-wi-core = { path = "crates/wi-core" }
-wi-macros = { path = "crates/wi-macros" }
-wi-masonry = { path = "crates/wi-masonry" }
-wi-xilem = { path = "crates/wi-xilem" }
+shibari = { version = "0.0.0", path = "crates/shibari" }
+shibari-grammar = { version = "0.0.0", path = "crates/shibari-grammar" }
+shibari-macros = { version = "0.0.0", path = "crates/shibari-macros" }
+wi-core = { version = "0.0.0", path = "crates/wi-core" }
+wi-masonry = { version = "0.0.0", path = "crates/wi-masonry" }
+wi-xilem = { version = "0.0.0", path = "crates/wi-xilem" }
 
 [workspace.lints.rust]
 missing_debug_implementations = "deny"
@@ -38,7 +42,7 @@ missing_panics_doc = "allow"
 pedantic = { level = "warn", priority = -1 }
 style = { level = "deny", priority = -1 }
 suspicious = { level = "deny", priority = -1 }
-# cargo = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 
 [profile.release]
 lto = "thin"
