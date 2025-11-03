@@ -3,6 +3,7 @@ use smallvec::SmallVec;
 
 mod build;
 mod builder;
+mod unused;
 
 use std::{fmt, ops::Deref};
 
@@ -284,6 +285,10 @@ impl<Output, ExtendConversion, TokenDef, RootExtra, LeafExtra, TreeExtra>
     ) -> &Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
         self.root(id).unwrap_or_else(|| unreachable!())
     }
+
+    pub fn labels(&self) -> Labels<'_, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        Labels::new(&self.roots)
+    }
 }
 
 #[derive(Debug)]
@@ -354,10 +359,7 @@ impl<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
     pub fn resolve_label_path(
         &self,
         label: Option<LabelId>,
-    ) -> (
-        &Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
-        SmallVec<[TokenId; 2]>,
-    ) {
+    ) -> Resolved<'_, Output, ExtendConversion, LeafExtra, TreeExtra> {
         self.try_resolve_label_path(label)
             .unwrap_or_else(|| panic!("No subtree found for label"))
     }
@@ -367,10 +369,7 @@ impl<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
     pub(crate) fn resolve_label_path_always(
         &self,
         label: Option<LabelId>,
-    ) -> (
-        &Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
-        SmallVec<[TokenId; 2]>,
-    ) {
+    ) -> Resolved<'_, Output, ExtendConversion, LeafExtra, TreeExtra> {
         self.try_resolve_label_path(label)
             .unwrap_or_else(|| unreachable!())
     }
@@ -496,4 +495,152 @@ impl<Output, ExtendConversion, LeafExtra, TreeExtra> Deref
 
     #[inline]
     fn deref(&self) -> &Self::Target { &self.tree }
+}
+
+pub use labels::{LabelInfo, Labels};
+
+mod labels {
+    use std::mem;
+
+    use super::{LabelId, Resolved, Root, RootId, SmallVec, TokenId, Tree, TreeDelta};
+
+    #[must_use = "This struct does nothing unless iterated"]
+    #[derive(Debug)]
+    pub struct Labels<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        roots: std::iter::Enumerate<
+            std::slice::Iter<'a, Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>,
+        >,
+
+        tree_stack: SmallVec<
+            [(
+                Option<TokenId>,
+                &'a Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
+            ); 2],
+        >,
+        tree_buf: SmallVec<
+            [(
+                Option<TokenId>,
+                &'a Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
+            ); 1],
+        >,
+        token_path: SmallVec<[TokenId; 2]>,
+
+        state: State<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    }
+
+    #[derive(Debug)]
+    enum State<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        Base,
+        InRoot(InRoot<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>),
+        InTree(
+            InRoot<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+            InTree<'a, Output, ExtendConversion, LeafExtra, TreeExtra>,
+        ),
+        Poison,
+    }
+
+    #[derive(Debug)]
+    struct InRoot<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        root_id: RootId,
+        root: &'a Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    }
+
+    #[derive(Debug)]
+    struct InTree<'a, Output, ExtendConversion, LeafExtra, TreeExtra> {
+        orig_token_path_len: usize,
+        deltas: indexmap::map::Iter<
+            'a,
+            TokenId,
+            TreeDelta<Output, ExtendConversion, LeafExtra, TreeExtra>,
+        >,
+    }
+
+    pub type LabelInfo<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> = (
+        RootId,
+        LabelId,
+        &'a Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+        Resolved<'a, Output, ExtendConversion, LeafExtra, TreeExtra>,
+    );
+
+    impl<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
+        Labels<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
+    {
+        pub fn new(
+            roots: &'a [Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>],
+        ) -> Self {
+            Self {
+                roots: roots.iter().enumerate(),
+                tree_stack: SmallVec::new_const(),
+                tree_buf: SmallVec::new_const(),
+                token_path: SmallVec::new_const(),
+                state: State::Base,
+            }
+        }
+    }
+
+    impl<'a, Output: 'a, ExtendConversion: 'a, RootExtra: 'a, LeafExtra: 'a, TreeExtra: 'a> Iterator
+        for Labels<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
+    {
+        type Item = LabelInfo<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            Some('r#yield: loop {
+                self.state = match mem::replace(&mut self.state, State::Poison) {
+                    State::Base => {
+                        let (i, root) = self.roots.next()?;
+                        self.tree_stack.push((None, root));
+
+                        State::InRoot(InRoot {
+                            root_id: RootId(i.try_into().unwrap_or_else(|_| unreachable!())),
+                            root,
+                        })
+                    },
+                    State::InRoot(r) => {
+                        if let Some((token, parent)) = self.tree_stack.pop() {
+                            let orig_token_path_len = self.token_path.len();
+                            self.token_path.extend(token);
+
+                            State::InTree(r, InTree {
+                                orig_token_path_len,
+                                deltas: parent.deltas.iter(),
+                            })
+                        } else {
+                            State::Base
+                        }
+                    },
+                    State::InTree(r, mut t) => {
+                        for (&token, delta) in &mut t.deltas {
+                            if let TreeDelta::Branch(branch) = delta {
+                                self.tree_buf.push((Some(token), branch));
+
+                                if let Some(label) = branch.label {
+                                    let InRoot { root_id, root } = r;
+                                    self.state = State::InTree(r, t);
+                                    break 'r#yield (
+                                        root_id,
+                                        label,
+                                        root,
+                                        (
+                                            branch,
+                                            self.token_path
+                                                .iter()
+                                                .copied()
+                                                .chain([token])
+                                                .collect(),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+
+                        self.token_path.truncate(t.orig_token_path_len);
+                        self.tree_stack.extend(self.tree_buf.drain(..).rev());
+
+                        State::InRoot(r)
+                    },
+                    State::Poison => unreachable!(),
+                }
+            })
+        }
+    }
 }

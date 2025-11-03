@@ -26,7 +26,7 @@ pub(super) fn run(input: Input) -> TokenStream {
     } = input;
 
     let trees = reparse::parse_grammars(tokens, grammars, &mut diag);
-    let tables = trees.flatten(reparse::StateExtra::from_path);
+    let tables = trees.flatten(|p| reparse::StateExtra::from_path(p, &mut diag));
 
     let shibari = alias.map_or_else(
         || syn::parse_quote! { ::shibari },
@@ -166,6 +166,7 @@ fn emit_acceptor(
         #state_attrs
         enum #state_ty { #states }
 
+        #[automatically_derived]
         impl #acceptor_path<#input_ty> for #accept_ty {
             type Output = #output;
 

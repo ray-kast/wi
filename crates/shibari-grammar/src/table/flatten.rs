@@ -145,11 +145,11 @@ impl<
 {
     #[must_use]
     pub fn flatten<
-        F: Fn(&TreeStatePath<TokenDef, RootExtra, TreeExtra>) -> StateExtra,
+        F: FnMut(&TreeStatePath<TokenDef, RootExtra, TreeExtra>) -> StateExtra,
         StateExtra,
     >(
         &self,
-        extra: F,
+        mut extra: F,
     ) -> IndexMap<RootId, SparseTable<TokenId, TreeOutput<'_, Output, ExtendConversion>, StateExtra>>
     {
         let mut closures = PathClosures {
@@ -158,14 +158,14 @@ impl<
         };
 
         self.root_ids()
-            .map(|id| self.flatten_root(id, &extra, &mut closures))
+            .map(|id| self.flatten_root(id, &mut extra, &mut closures))
             .collect()
     }
 
     fn flatten_root<'tree, StateExtra>(
         &'tree self,
         id: RootId,
-        extra: impl Fn(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
+        mut extra: impl FnMut(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
         closures: &mut PathClosures<
             'tree,
             Output,

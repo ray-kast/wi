@@ -4,7 +4,7 @@ use shibari_grammar::{
     table::TreeStatePath,
     tree::{self, LeafBuilder},
 };
-use syn::{Block, Expr, Ident, Lifetime, LitStr, Pat, Type, Visibility};
+use syn::{Block, Expr, Ident, Label, Lifetime, LitStr, Pat, Type, Visibility};
 
 use super::parse;
 use crate::prelude::*;
@@ -62,7 +62,7 @@ pub(super) enum ExtendConversionKind {
 }
 
 pub(super) struct TokenDef {
-    name_span: Span,
+    name: Ident,
     pub pat: Pat,
     pub op: Option<LitStr>,
 }
@@ -108,6 +108,7 @@ impl fmt::Debug for LeafExtra {
 
 pub(super) struct TreeExtra {
     name_span: Span,
+    label: Option<Label>,
 }
 
 impl fmt::Debug for TreeExtra {
@@ -149,13 +150,29 @@ impl fmt::Debug for StateExtra {
 }
 
 impl StateExtra {
-    pub fn from_path(path: &TreeStatePath<TokenDef, RootExtra, TreeExtra>) -> Self {
+    pub fn from_path(
+        path: &TreeStatePath<TokenDef, RootExtra, TreeExtra>,
+        diag: &mut TokenStream,
+    ) -> Self {
         Self {
             op: LitStr::new(
                 &path
                     .path
                     .iter()
-                    .map(|&(_, d, _)| d.op.as_ref().map_or_else(String::new, LitStr::value))
+                    .map(|&(_, d, _)| {
+                        d.op.as_ref().map_or_else(
+                            || {
+                                diag.extend(
+                                    d.name
+                                        .span()
+                                        .error("Missing pending-op string for token used in branch")
+                                        .into_compile_error(),
+                                );
+                                String::new()
+                            },
+                            LitStr::value,
+                        )
+                    })
                     .collect::<String>(),
                 path.path
                     .last()
@@ -173,7 +190,8 @@ impl Extend<BuildError> for ErrorAdapter<'_> {
         self.0.extend(iter.into_iter().map(|e| {
             match e {
                 tree::BuildError::DuplicateToken(n, d) => d
-                    .name_span
+                    .name
+                    .span()
                     .error(format!("Duplicate token definition for {n}")),
                 tree::BuildError::DuplicateRoot(n, _, t) => t
                     .name_span
@@ -217,9 +235,8 @@ pub(super) fn parse_grammars(
         semi_token: _,
     } in tokens
     {
-        let name_span = ident.span();
-        b.token(ident, TokenDef {
-            name_span,
+        b.token(ident.clone(), TokenDef {
+            name: ident,
             pat,
             op: op.map(
                 |parse::TokenOp {
@@ -258,13 +275,53 @@ pub(super) fn parse_grammars(
         let name_span = ident.span();
         b.root_with_extra(
             ident.clone(),
-            TreeExtra { name_span },
+            TreeExtra {
+                name_span,
+                label: None,
+            },
             RootExtra { vis, ident, output },
             |b| build_tree(b, nodes, extends, default, diag),
         );
     }
 
-    b.build_recoverable(&mut ErrorAdapter(diag), || Output::Trap, || Output::Advance)
+    let trees = b.build_recoverable(&mut ErrorAdapter(diag), || Output::Trap, || Output::Advance);
+
+    let mut unused = TokenStream::new();
+    for (_, token) in trees.unused_tokens() {
+        let name = &token.name;
+        unused.extend(quote_spanned! { name.span() => struct #name; });
+    }
+
+    for (i, (_, _, _, (tree, _))) in trees.unused_labels().enumerate() {
+        let label = tree
+            .extra()
+            .label
+            .as_ref()
+            .unwrap_or_else(|| unreachable!());
+        let span = label.span();
+
+        let ident = Ident::new(&format!("__{i}"), span);
+
+        unused.extend(quote_spanned! { span => fn #ident() { #label {} } });
+    }
+
+    if !unused.is_empty() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static FREE: AtomicUsize = AtomicUsize::new(0);
+
+        let free = FREE.fetch_add(1, Ordering::SeqCst);
+        let id = Ident::new(
+            &format!("__shibari_static_acceptors_unused__{free}"),
+            Span::call_site(),
+        );
+
+        diag.extend(quote_spanned! { Span::call_site() =>
+            #[doc(hidden)] mod #id { #unused }
+        });
+    }
+
+    trees
 }
 
 fn build_tree<'b>(
@@ -304,23 +361,30 @@ fn build_tree<'b>(
                 nodes,
                 extends,
                 default,
-            }) => b.branch_with_extra(tok_ident, TreeExtra { name_span }, |b| {
-                if let Some(label) = label {
-                    b.label(label.name);
-                }
+            }) => b.branch_with_extra(
+                tok_ident,
+                TreeExtra {
+                    name_span,
+                    label: label.clone(),
+                },
+                |b| {
+                    if let Some(label) = label {
+                        b.label(label.name);
+                    }
 
-                if let Some(parse::BranchYield {
-                    yield_token: _,
-                    expr,
-                    semi_token: _,
-                }) = out
-                {
-                    b.out(Output::Expr(expr));
-                }
+                    if let Some(parse::BranchYield {
+                        yield_token: _,
+                        expr,
+                        semi_token: _,
+                    }) = out
+                    {
+                        b.out(Output::Expr(expr));
+                    }
 
-                build_tree(b, nodes, extends, default, diag);
-                b
-            }),
+                    build_tree(b, nodes, extends, default, diag);
+                    b
+                },
+            ),
         };
     }
 
