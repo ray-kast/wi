@@ -11,8 +11,8 @@ use petgraph::{
     visit::{IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
-    Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status, Step, WCursor,
-    WEdgeCursor, WPort, WSidedPort,
+    ContinueOnce, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status,
+    Step, WCursor, WEdgeCursor, WPort, WSidedPort, Yielded,
 };
 
 use super::{
@@ -165,6 +165,7 @@ impl<N: Node> GraphWidget for EditorCore<N> {
     type Cell = Cell<N>;
     type Context<'a> = EventCtx<'a>;
     type NodeId = NodeIndex;
+    type NodeKind = N;
     type Point = Point;
     type PortId = u16;
 
@@ -354,7 +355,7 @@ impl<N: Node> GraphWidget for EditorCore<N> {
                 }
     }
 
-    fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, ctx: &mut EventCtx) {
+    fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, cx: &mut EventCtx) {
         match update {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
@@ -369,12 +370,12 @@ impl<N: Node> GraphWidget for EditorCore<N> {
                 self.zoom.reset();
             },
         }
-        ctx.request_render();
+        cx.request_render();
     }
 
-    fn update_status(&mut self, status: Status, ctx: &mut EventCtx) {
+    fn update_status(&mut self, status: Status, cx: &mut EventCtx) {
         let rendered = RenderedStatus::new(status);
-        ctx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
+        cx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
     }
 
     #[inline]
@@ -396,5 +397,12 @@ impl<N: Node> GraphWidget for EditorCore<N> {
             .remove_edge(e)
             .unwrap_or_else(|| unreachable!());
         true
+    }
+
+    fn prompt_node_kind<C: ContinueOnce<Self, Option<Self::NodeKind>>>(
+        &mut self,
+        then: Yielded<Self, C>,
+    ) {
+        then.resume_now(self, todo!());
     }
 }

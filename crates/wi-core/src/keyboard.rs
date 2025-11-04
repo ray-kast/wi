@@ -14,21 +14,21 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     fn mutate_check<T>(
         &mut self,
         widget: &mut W,
-        ctx: &mut W::Context<'_>,
+        cx: &mut W::Context<'_>,
         f: impl FnOnce(&mut Self, &mut W, &mut W::Context<'_>) -> T,
     ) -> T {
         let pre_status = self.status();
-        let res = f(self, widget, ctx);
+        let res = f(self, widget, cx);
 
         if pre_status != self.status() {
-            widget.update_status(self.status(), ctx);
+            widget.update_status(self.status(), cx);
         }
 
         res
     }
 
     #[instrument(
-        skip(self, widget, ctx),
+        skip(self, widget, cx),
         fields(mode = ?self.mode, pending = ?self.mode.pending_op()),
     )]
     #[inline]
@@ -37,13 +37,13 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         widget: &mut W,
         chars: &str,
         mods: Modifiers,
-        ctx: &mut W::Context<'_>,
+        cx: &mut W::Context<'_>,
     ) -> bool {
-        self.mutate_check(widget, ctx, |me, widget, ctx| {
+        self.mutate_check(widget, cx, |me, widget, cx| {
             let mut any_handled = false;
 
             for char in chars.to_lowercase().chars() {
-                any_handled |= me.handle_key(widget, Key::Char(char, mods), ctx);
+                any_handled |= me.handle_key(widget, Key::Char(char, mods), cx);
             }
 
             any_handled
@@ -67,9 +67,9 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         })
     }
 
-    fn handle_key(&mut self, widget: &mut W, key: Key, ctx: &mut W::Context<'_>) -> bool {
+    fn handle_key(&mut self, widget: &mut W, key: Key, cx: &mut W::Context<'_>) -> bool {
         if let Some(mut operator) = self.operators.pop() {
-            match operator.step(key, OperatorCx::new(widget, self, ctx)) {
+            match operator.step(key, OperatorCx::new(widget, self, cx)) {
                 OperatorResult::Continue => {
                     self.operators.push(operator);
                     return true;
@@ -94,7 +94,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 let handled = action.process(self.count.take(), ActionCx {
                     widget,
                     driver: self,
-                    inner: ctx,
+                    inner: cx,
                 });
 
                 if handled && !action.is_silent() {
@@ -104,7 +104,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 handled
             },
             ActionOut::Operator(mut operator) => {
-                let handled = operator.init(OperatorCx::new(widget, self, ctx));
+                let handled = operator.init(OperatorCx::new(widget, self, cx));
 
                 if handled {
                     debug!(operator = operator.name().as_ref(), "Pushing operator");

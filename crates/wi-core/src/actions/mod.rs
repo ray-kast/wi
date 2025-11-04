@@ -3,7 +3,7 @@ use std::{
     num::{NonZero, NonZeroU32},
 };
 
-use crate::{bindings::ModeKind, GraphWidget, GraphWidgetDriver};
+use crate::{bindings::ModeKind, GraphWidget};
 
 mod cursor;
 mod delete;
@@ -45,28 +45,28 @@ pub mod prelude {
     }
 }
 
-pub struct ActionCx<'a, 'w, W: GraphWidget + ?Sized> {
-    pub widget: &'a mut W,
-    pub driver: &'a mut GraphWidgetDriver<W>,
-    pub inner: &'a mut W::Context<'w>,
-}
-
-impl<'w, W: GraphWidget + ?Sized> ActionCx<'_, 'w, W> {
-    #[inline]
-    pub fn reborrow<'b>(&'b mut self) -> ActionCx<'b, 'w, W> {
-        ActionCx {
-            widget: &mut *self.widget,
-            driver: &mut *self.driver,
-            inner: &mut *self.inner,
-        }
-    }
-}
-
 mod imp {
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
-    use crate::cursor::NullSelection;
+    use crate::{cursor::NullSelection, GraphWidgetDriver};
+
+    pub struct ActionCx<'a, 'w, W: GraphWidget + ?Sized> {
+        pub widget: &'a mut W,
+        pub driver: &'a mut GraphWidgetDriver<W>,
+        pub inner: &'a mut W::Context<'w>,
+    }
+
+    impl<'w, W: GraphWidget + ?Sized> ActionCx<'_, 'w, W> {
+        #[inline]
+        pub fn reborrow<'b>(&'b mut self) -> ActionCx<'b, 'w, W> {
+            ActionCx {
+                widget: &mut *self.widget,
+                driver: &mut *self.driver,
+                inner: &mut *self.inner,
+            }
+        }
+    }
 
     #[enum_dispatch]
     pub trait EditorAction {
@@ -144,7 +144,7 @@ mod imp {
     }
 }
 
-pub use imp::{Action, EditorAction, EditorMotion, Motion};
+pub use imp::{Action, ActionCx, EditorAction, EditorMotion, Motion};
 
 mod basic {
     use crate::bindings::ModeKind;

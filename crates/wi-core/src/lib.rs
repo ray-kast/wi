@@ -7,6 +7,7 @@ use crate::bindings::Mode;
 pub use crate::{
     actions::Action,
     bindings::ModeKind,
+    continuation::{ContinueOnce, Yielded},
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     operators::Operator,
     status::Status,
@@ -16,6 +17,7 @@ pub extern crate shibari;
 
 mod actions;
 mod bindings;
+mod continuation;
 mod cursor;
 mod keyboard;
 pub mod modifiers;
@@ -88,6 +90,8 @@ pub trait GraphWidget {
 
     type Context<'a>;
 
+    type NodeKind;
+
     fn default_cursor(&self) -> WCursor<Self>;
 
     fn nearest_node_where<F: Fn(&Self::NodeId) -> bool>(
@@ -141,14 +145,19 @@ pub trait GraphWidget {
         &mut self,
         update: CursorUpdate,
         cursor: &WCursor<Self>,
-        ctx: &mut Self::Context<'_>,
+        cx: &mut Self::Context<'_>,
     );
 
-    fn update_status(&mut self, status: Status, ctx: &mut Self::Context<'_>);
+    fn update_status(&mut self, status: Status, cx: &mut Self::Context<'_>);
 
     fn delete_node(&mut self, node: &Self::NodeId) -> bool;
 
     fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool;
+
+    fn prompt_node_kind<C: ContinueOnce<Self, Option<Self::NodeKind>>>(
+        &mut self,
+        then: Yielded<Self, C>,
+    );
 }
 
 #[must_use]

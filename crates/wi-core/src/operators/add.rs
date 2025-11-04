@@ -15,6 +15,15 @@ impl OperatorInner for operators::AddInner {
     fn new<W: GraphWidget + ?Sized>(cx: OperatorCx<W>) -> Option<Self> { Some(Self) }
 
     fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>) -> OperatorResult {
+        let (widget, then) = cx.into_yielded(AddWithType);
+        widget.prompt_node_kind(then);
+
         OperatorResult::Abort
     }
+}
+
+struct AddWithType;
+
+impl<W: GraphWidget + ?Sized> ContinueOnceImpl<W, Option<W::NodeKind>> for AddWithType {
+    fn continue_once(self, value: Option<W::NodeKind>, cx: ContinueCx<W>) { todo!() }
 }

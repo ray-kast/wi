@@ -6,39 +6,49 @@ pub mod all {
 
 pub mod prelude {
     pub use super::{all::*, Operator, OperatorCx, OperatorInner, OperatorResult};
-    pub use crate::{actions::prelude::*, bindings::Key};
-}
-
-pub struct OperatorCx<'a, 'w, W: GraphWidget + ?Sized> {
-    pub widget: &'a mut W,
-    pub driver: &'a mut GraphWidgetDriver<W>,
-    inner: &'a mut W::Context<'w>,
-}
-
-impl<'a, 'w, W: GraphWidget + ?Sized> OperatorCx<'a, 'w, W> {
-    pub fn new(
-        widget: &'a mut W,
-        driver: &'a mut GraphWidgetDriver<W>,
-        inner: &'a mut W::Context<'w>,
-    ) -> Self {
-        Self {
-            widget,
-            driver,
-            inner,
-        }
-    }
-}
-
-pub enum OperatorResult {
-    Continue,
-    Finish,
-    Abort,
+    pub use crate::{
+        actions::prelude::*,
+        bindings::Key,
+        continuation::{ContinueCx, ContinueOnceImpl, Yielded},
+    };
 }
 
 mod imp {
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
+    use crate::GraphWidgetDriver;
+
+    pub struct OperatorCx<'a, 'w, W: GraphWidget + ?Sized> {
+        pub widget: &'a mut W,
+        pub driver: &'a mut GraphWidgetDriver<W>,
+        inner: &'a mut W::Context<'w>,
+    }
+
+    impl<'a, 'w, W: GraphWidget + ?Sized> OperatorCx<'a, 'w, W> {
+        pub const fn new(
+            widget: &'a mut W,
+            driver: &'a mut GraphWidgetDriver<W>,
+            inner: &'a mut W::Context<'w>,
+        ) -> Self {
+            Self {
+                widget,
+                driver,
+                inner,
+            }
+        }
+
+        #[inline]
+        pub const fn into_yielded<C>(self, then: C) -> (&'a mut W, Yielded<'a, 'w, W, C>) {
+            (self.widget, Yielded::new(then, self.driver, self.inner))
+        }
+    }
+
+    pub enum OperatorResult {
+        Continue,
+        Finish,
+        Abort,
+    }
 
     #[enum_dispatch]
     pub trait EditorOperator {
@@ -73,7 +83,7 @@ mod imp {
     }
 }
 
-pub use imp::{EditorOperator, Operator, OperatorInner};
+pub use imp::{EditorOperator, Operator, OperatorCx, OperatorInner, OperatorResult};
 
 macro_rules! operator {
     ($(#$attr:tt)* $vis:vis $op:ident => $inner_vis:vis $inner:ident) => {
@@ -124,5 +134,3 @@ macro_rules! operator {
 }
 
 pub(crate) use operator;
-
-use crate::{GraphWidget, GraphWidgetDriver};
