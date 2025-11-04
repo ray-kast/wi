@@ -485,9 +485,9 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 self.core.pan.cancel_drag(None, ctx);
                 self.core.cancel_node_drag(None, ctx);
             },
-            TextEvent::Keyboard(KeyboardEvent {
+            &TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
-                key: Key::Character(s),
+                key: Key::Character(ref s),
                 modifiers,
                 is_composing: false,
                 ..
@@ -515,7 +515,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             },
             TextEvent::Ime(Ime::Commit(s)) => {
                 self.driver
-                    .handle_char_input(&mut self.core, s, &M_NONE, ctx);
+                    .handle_char_input(&mut self.core, s, M_NONE, ctx);
             },
             _ => return,
         }

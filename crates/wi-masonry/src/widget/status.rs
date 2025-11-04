@@ -9,7 +9,7 @@ use masonry::{
 use wi_core::{ModeKind, Status};
 
 pub struct RenderedStatus {
-    mode: &'static str,
+    mode: Cow<'static, str>,
     mode_brush: AlphaColor<Srgb>,
     last_action: Cow<'static, str>,
     chord: String,
@@ -21,6 +21,7 @@ impl RenderedStatus {
             count,
             mode,
             last_action,
+            current_operator,
             pending_op,
             debug: _,
         } = status;
@@ -30,18 +31,19 @@ impl RenderedStatus {
             write!(chord, "{count}").unwrap();
         }
 
-        let last_action = if let Some(action) = last_action {
-            action.name()
-        } else {
-            "".into()
-        };
+        let last_action = last_action.map_or(Cow::Borrowed(""), wi_core::Action::name);
 
         write!(chord, "{pending_op}").unwrap();
 
-        let default_mode = matches!(mode, ModeKind::Normal);
-        let mode = match mode {
+        let mut default_mode = matches!(mode, ModeKind::Normal);
+        let mut mode = Cow::Borrowed(match mode {
             ModeKind::Normal => "Normal",
-        };
+        });
+
+        if let Some(operator) = current_operator {
+            mode = format!("{mode} \u{2014} {}", operator.name()).into();
+            default_mode = false;
+        }
 
         Self {
             mode,
@@ -97,10 +99,12 @@ impl RenderedStatus {
             Label::set_brush(&mut lbl, mode_brush);
         }
 
-        Label::set_text(
-            &mut Flex::child_mut(&mut bar, 3).unwrap().downcast(),
-            last_action,
-        );
+        {
+            Label::set_text(
+                &mut Flex::child_mut(&mut bar, 3).unwrap().downcast(),
+                last_action,
+            );
+        }
 
         Label::set_text(
             &mut SizedBox::child_mut(&mut Flex::child_mut(&mut bar, 4).unwrap().downcast())

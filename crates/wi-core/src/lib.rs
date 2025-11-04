@@ -8,6 +8,7 @@ pub use crate::{
     actions::Action,
     bindings::ModeKind,
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
+    operators::Operator,
     status::Status,
 };
 
@@ -157,6 +158,7 @@ pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
     debug: bool,
 
     count: Option<NonZeroU32>,
+    operators: Vec<Operator>,
     mode: Mode,
     last_action: Option<Action>,
 }
@@ -174,6 +176,7 @@ where
             cell,
             debug,
             count,
+            operators,
             mode,
             last_action,
         } = self;
@@ -182,6 +185,7 @@ where
             .field("cell", cell)
             .field("debug", debug)
             .field("count", count)
+            .field("operators", operators)
             .field("mode", mode)
             .field("last_action", last_action)
             .finish()
@@ -196,6 +200,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
             cursor: Some(cursor),
             debug: false,
             count: None,
+            operators: vec![],
             mode: Mode::default(),
             last_action: None,
         };

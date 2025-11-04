@@ -1,6 +1,6 @@
 use shibari::AcceptState;
 
-use crate::{actions::prelude::*, modifiers::M_TCTL, operators::Operator, Step};
+use crate::{actions::prelude::*, modifiers::M_TCTL, operators::prelude::*, Step};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ActionOut {
@@ -70,7 +70,7 @@ shibari::static_acceptors! {
     token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
     token Home = N(K::Home, M_NONE);
 
-    token AddOp = C('a', M_NONE) => "a";
+    token AddOp = C('a', M_NONE);
     token ConnectOp = C('c', M_NONE) => "c";
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
@@ -89,7 +89,7 @@ shibari::static_acceptors! {
     token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
 
     pub grammar Normal: ActionOut {
-        AddOp {}
+        AddOp => yield dispatch_op(Add::default());
         ConnectOp {}
 
         DeleteOp {
@@ -139,16 +139,12 @@ mod mode {
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Mode {
-        Normal { accept: NormalAccept },
+        Normal(NormalAccept),
     }
 
     impl Default for Mode {
         #[inline]
-        fn default() -> Self {
-            Self::Normal {
-                accept: NormalAccept::default(),
-            }
-        }
+        fn default() -> Self { Self::Normal(NormalAccept::default()) }
     }
 
     impl Mode {
@@ -158,9 +154,7 @@ mod mode {
             }
 
             *self = match to {
-                ModeKind::Normal => Self::Normal {
-                    accept: NormalAccept::default(),
-                },
+                ModeKind::Normal => Self::Normal(NormalAccept::default()),
             };
 
             true
@@ -169,7 +163,7 @@ mod mode {
         #[inline]
         pub fn kind(self) -> ModeKind {
             match self {
-                Self::Normal { .. } => ModeKind::Normal,
+                Self::Normal(_) => ModeKind::Normal,
             }
         }
     }
@@ -190,7 +184,7 @@ mod mode {
 
         fn pending_op(&self) -> &'static str {
             match self {
-                Self::Normal { accept, .. } => accept.pending_op(),
+                Self::Normal(a) => a.pending_op(),
             }
         }
 
@@ -219,7 +213,7 @@ mod mode {
 
             debug!("Handling keypress");
             match self {
-                Self::Normal { accept, .. } => accept.accept(input),
+                Self::Normal(a) => a.accept(input),
             }
         }
     }

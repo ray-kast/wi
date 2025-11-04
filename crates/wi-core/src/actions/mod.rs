@@ -3,12 +3,7 @@ use std::{
     num::{NonZero, NonZeroU32},
 };
 
-use tracing::{debug, instrument};
-
-use crate::{
-    bindings::{ActionOut, ModeKind},
-    GraphWidget, GraphWidgetDriver,
-};
+use crate::{bindings::ModeKind, GraphWidget, GraphWidgetDriver};
 
 mod cursor;
 mod delete;
@@ -216,37 +211,5 @@ impl EditorAction for basic::ToggleDebug {
         cx.driver.debug = !cx.driver.debug;
 
         true
-    }
-}
-
-impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
-    #[instrument(skip(self, widget, action, ctx), fields(count = ?self.count))]
-    pub fn process_action(
-        &mut self,
-        widget: &mut W,
-        action: ActionOut,
-        ctx: &mut W::Context<'_>,
-    ) -> bool {
-        let action = match action {
-            ActionOut::Trap => {
-                self.count = None;
-                return false;
-            },
-            ActionOut::Advance => return true,
-            ActionOut::Action(a) => a,
-        };
-
-        debug!(action = action.name().as_ref(), "Processing action");
-        let handled = action.process(self.count.take(), ActionCx {
-            widget,
-            driver: self,
-            inner: ctx,
-        });
-
-        if handled && !action.is_silent() {
-            self.last_action = Some(action);
-        }
-
-        handled
     }
 }
