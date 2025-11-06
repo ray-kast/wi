@@ -403,6 +403,6 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         &mut self,
         then: Yielded<Self, C>,
     ) {
-        then.resume_now(self, todo!());
+        then.resume_now(self, Some(N::TMP_EXAMPLE));
     }
 }

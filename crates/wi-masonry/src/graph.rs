@@ -10,6 +10,8 @@ pub trait Node: Clone {
     type Widget;
     type PortShape;
 
+    const TMP_EXAMPLE: Self;
+
     fn in_arity(&self) -> u16;
     fn out_arity(&self) -> u16;
 

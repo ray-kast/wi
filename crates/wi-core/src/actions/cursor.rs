@@ -68,12 +68,16 @@ fn move_cursor<W: GraphWidget + ?Sized>(
         &W::Cell,
     ) -> (Option<NonZeroU32>, WCursor<W>, AlignCell),
 ) -> bool {
-    let cell = &mut cx.driver.cell;
+    let cell = &mut cx.driver.inner.cell;
 
     let any = run_with_count(count, |steps| {
         let (dec, cursor, align) = f(
             steps,
-            cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
+            cx.driver
+                .inner
+                .cursor
+                .take()
+                .unwrap_or_else(|| unreachable!()),
             cx.widget,
             cell,
         );
@@ -81,7 +85,7 @@ fn move_cursor<W: GraphWidget + ?Sized>(
         if dec.is_some() {
             cell.align_to_cursor(cx.widget, &cursor, align);
         }
-        cx.driver.cursor = Some(cursor);
+        cx.driver.inner.cursor = Some(cursor);
 
         dec
     });

@@ -23,6 +23,14 @@ impl wi_xilem::graph::Node for Node {
     type PortShape = ();
     type Widget = ();
 
+    const TMP_EXAMPLE: Self = Node {
+        name: "tmp",
+        style: NodeStyle::Medium,
+        pos: Point { x: 0.0, y: 0.0 },
+        inputs: vec![],
+        outputs: vec![],
+    };
+
     #[inline]
     fn in_arity(&self) -> u16 {
         self.inputs

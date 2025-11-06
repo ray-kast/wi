@@ -1,4 +1,7 @@
-use syn::{token, Block, Expr, Ident, Label, Lifetime, LitStr, Pat, Path, Token, Type, Visibility};
+use syn::{
+    punctuated::Punctuated, token, Block, Expr, Ident, Label, Lifetime, LitStr, Pat, Path, Token,
+    Type, Visibility,
+};
 
 use crate::prelude::*;
 
@@ -72,7 +75,8 @@ pub(super) struct GrammarDef {
 
 pub(super) struct GrammarNode {
     pub label: Option<Label>,
-    pub tok_ident: Ident,
+    pub leading_vert: Option<Token![|]>,
+    pub tok_idents: Punctuated<Ident, Token![|]>,
     pub kind: NodeKind,
 }
 
@@ -90,6 +94,7 @@ pub(super) struct NodeLeaf {
     pub semi_token: Token![;],
 }
 
+#[derive(Clone)]
 pub(super) enum Output {
     Expr(#[expect(unused)] Token![yield], Expr),
     Goto(
@@ -260,7 +265,13 @@ impl Parse for GrammarNode {
             None
         };
 
-        let tok_ident = input.parse()?;
+        let leading_vert = if input.lookahead1().peek(Token![|]) {
+            Some(input.parse()?)
+        } else {
+            None
+        };
+
+        let tok_idents = Punctuated::parse_separated_nonempty(input)?;
 
         let kind = if input.lookahead1().peek(Token![=>]) {
             NodeKind::Leaf(input.parse()?)
@@ -270,7 +281,8 @@ impl Parse for GrammarNode {
 
         Ok(Self {
             label,
-            tok_ident,
+            leading_vert,
+            tok_idents,
             kind,
         })
     }

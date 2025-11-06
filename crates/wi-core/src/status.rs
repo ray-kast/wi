@@ -3,7 +3,10 @@ use std::num::NonZero;
 use shibari::Acceptor;
 
 use crate::{
-    actions::Action, bindings::ModeKind, operators::Operator, GraphWidget, GraphWidgetDriver,
+    actions::Action,
+    mode::ModeKind,
+    operators::{Operator, OperatorState},
+    GraphWidget, GraphWidgetDriver,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -11,7 +14,7 @@ pub struct Status {
     pub count: Option<u32>,
     pub mode: ModeKind,
     pub last_action: Option<Action>,
-    pub current_operator: Option<Operator>,
+    pub current_operator: Option<OperatorState>,
     pub pending_op: &'static str,
     pub debug: bool,
 }
@@ -19,12 +22,12 @@ pub struct Status {
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     pub fn status(&self) -> Status {
         Status {
-            count: self.count.map(NonZero::get),
-            mode: self.mode.kind(),
-            last_action: self.last_action,
-            current_operator: self.operators.last().copied(),
-            pending_op: self.mode.pending_op(),
-            debug: self.debug,
+            count: self.inner.count.map(NonZero::get),
+            mode: self.inner.mode.kind(),
+            last_action: self.inner.last_action,
+            current_operator: self.current_operator.as_ref().map(Operator::state),
+            pending_op: self.inner.mode.pending_op(),
+            debug: self.inner.debug,
         }
     }
 }

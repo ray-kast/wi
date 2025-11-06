@@ -280,7 +280,7 @@ pub(super) fn parse_grammars(
                 label: None,
             },
             RootExtra { vis, ident, output },
-            |b| build_tree(b, nodes, extends, default, diag),
+            |b| build_tree(b, &nodes, &extends, default.as_ref(), diag),
         );
     }
 
@@ -326,66 +326,71 @@ pub(super) fn parse_grammars(
 
 fn build_tree<'b>(
     b: &'b mut TreeBuilder,
-    nodes: Vec<parse::GrammarNode>,
-    extends: Vec<parse::GrammarExtend>,
-    default: Option<parse::BranchDefault>,
+    nodes: &[parse::GrammarNode],
+    extends: &[parse::GrammarExtend],
+    default: Option<&parse::BranchDefault>,
     diag: &mut TokenStream,
 ) -> &'b mut TreeBuilder {
     for parse::GrammarNode {
         label,
-        tok_ident,
+        leading_vert,
+        tok_idents,
         kind,
     } in nodes
     {
-        let name_span = tok_ident.span();
-        match kind {
-            parse::NodeKind::Leaf(parse::NodeLeaf {
-                arrow_token: _,
-                out,
-                semi_token: _,
-            }) => {
-                if let Some(label) = label {
-                    diag.extend(
-                        label
-                            .span()
-                            .error("Labels not allowed for leaf deltas")
-                            .into_compile_error(),
-                    );
-                }
-
-                b.leaf_with_extra(tok_ident, out.into(), LeafExtra { name_span })
-            },
-            parse::NodeKind::Branch(parse::NodeBranch {
-                brace: _,
-                out,
-                nodes,
-                extends,
-                default,
-            }) => b.branch_with_extra(
-                tok_ident,
-                TreeExtra {
-                    name_span,
-                    label: label.clone(),
-                },
-                |b| {
+        for tok_ident in tok_idents {
+            let name_span = tok_ident.span();
+            match &kind {
+                parse::NodeKind::Leaf(parse::NodeLeaf {
+                    arrow_token: _,
+                    out,
+                    semi_token: _,
+                }) => {
                     if let Some(label) = label {
-                        b.label(label.name);
+                        diag.extend(
+                            label
+                                .span()
+                                .error("Labels not allowed for leaf deltas")
+                                .into_compile_error(),
+                        );
                     }
 
-                    if let Some(parse::BranchYield {
-                        yield_token: _,
-                        expr,
-                        semi_token: _,
-                    }) = out
-                    {
-                        b.out(Output::Expr(expr));
-                    }
-
-                    build_tree(b, nodes, extends, default, diag);
-                    b
+                    b.leaf_with_extra(tok_ident.clone(), out.clone().into(), LeafExtra {
+                        name_span,
+                    })
                 },
-            ),
-        };
+                parse::NodeKind::Branch(parse::NodeBranch {
+                    brace: _,
+                    out,
+                    nodes,
+                    extends,
+                    default,
+                }) => b.branch_with_extra(
+                    tok_ident.clone(),
+                    TreeExtra {
+                        name_span,
+                        label: label.clone(),
+                    },
+                    |b| {
+                        if let Some(label) = label {
+                            b.label(label.name.clone());
+                        }
+
+                        if let Some(parse::BranchYield {
+                            yield_token: _,
+                            expr,
+                            semi_token: _,
+                        }) = out
+                        {
+                            b.out(Output::Expr(expr.clone()));
+                        }
+
+                        build_tree(b, nodes, extends, default.as_ref(), diag);
+                        b
+                    },
+                ),
+            };
+        }
     }
 
     for parse::GrammarExtend {
@@ -395,7 +400,7 @@ fn build_tree<'b>(
     } in extends
     {
         b.extend(ident.clone(), None, ExtendConversion {
-            source_grammar: ident,
+            source_grammar: ident.clone(),
             kind: match kind {
                 parse::ExtendKind::From(_) => ExtendConversionKind::From,
                 parse::ExtendKind::With(parse::ExtendWith {
@@ -403,15 +408,15 @@ fn build_tree<'b>(
                     pat,
                     block,
                 }) => ExtendConversionKind::Explicit {
-                    param: pat,
-                    body: block,
+                    param: pat.clone(),
+                    body: block.clone(),
                 },
             },
         });
     }
 
     if let Some(parse::BranchDefault { ddot_token: _, out }) = default {
-        b.default(out.into());
+        b.default(out.clone().into());
     }
 
     b

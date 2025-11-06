@@ -1,27 +1,61 @@
-use shibari::AcceptState;
+use keyboard_types::{Modifiers, NamedKey};
+use shibari::{static_acceptors, AcceptState};
+use Key::{Char as C, Named as N};
+use NamedKey as K;
 
-use crate::{actions::prelude::*, modifiers::M_TCTL, operators::prelude::*, Step};
+use crate::{
+    actions::prelude::*,
+    mode::ModeKind,
+    modifiers::{M_NONE, M_SHIFT, M_TCTL},
+    operators::prelude::*,
+    Step,
+};
 
-#[derive(Debug, Clone, Copy)]
-pub enum ActionOut {
-    Trap,
-    Advance,
-    Action(Action),
-    Operator(Operator),
+macro_rules! out {
+    ($(#$attr:tt)* $vis:vis enum $ty:ident {
+        $inner:ident
+        $(, $($body:tt)*)?
+    }) => {
+        $(#$attr)*
+        $vis enum $ty {
+            Trap,
+            Advance,
+            $inner($inner),
+            $($($body)*)?
+        }
+
+        impl<T: Into<$inner>> From<T> for $ty {
+            #[inline]
+            fn from(value: T) -> Self { Self::$inner(value.into()) }
+        }
+
+        impl AcceptState for $ty {
+            const TRAP: Self = $ty::Trap;
+            const ADVANCE: Self = $ty::Advance;
+        }
+    };
 }
 
-impl<T: Into<Action>> From<T> for ActionOut {
-    #[inline]
-    fn from(value: T) -> Self { Self::Action(value.into()) }
+pub enum AddOpAction {
+    Accept,
+}
+
+out! {
+    pub enum AddOut {
+        AddOpAction,
+    }
+}
+
+out! {
+    #[derive(Debug)]
+    pub enum NormalOut {
+        Action,
+        Operator(Operator),
+    }
 }
 
 #[inline]
-fn dispatch_op<T: Into<Operator>>(op: T) -> ActionOut { ActionOut::Operator(op.into()) }
-
-impl AcceptState for ActionOut {
-    const ADVANCE: Self = Self::Advance;
-    const TRAP: Self = Self::Trap;
-}
+fn dispatch_op<T: Into<Operator>>(op: T) -> NormalOut { NormalOut::Operator(op.into()) }
 
 #[derive(Debug, Clone, Copy)]
 pub enum MotionOut {
@@ -35,7 +69,7 @@ impl<T: Into<Motion>> From<T> for MotionOut {
     fn from(value: T) -> Self { Self::Motion(value.into()) }
 }
 
-impl From<MotionOut> for ActionOut {
+impl From<MotionOut> for NormalOut {
     #[inline]
     fn from(value: MotionOut) -> Self {
         match value {
@@ -57,18 +91,12 @@ pub enum Key {
     Named(NamedKey, Modifiers),
 }
 
-use keyboard_types::{Modifiers, NamedKey};
-use Key::{Char as C, Named as N};
-use NamedKey as K;
-
-#[allow(clippy::wildcard_imports)]
-use crate::modifiers::*;
-
-shibari::static_acceptors! {
+static_acceptors! {
     input = Key;
 
     token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
     token Home = N(K::Home, M_NONE);
+    token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE);
 
     token AddOp = C('a', M_NONE);
     token ConnectOp = C('c', M_NONE) => "c";
@@ -88,7 +116,11 @@ shibari::static_acceptors! {
     token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
     token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
 
-    pub grammar Normal: ActionOut {
+    pub grammar AddOp: AddOut {
+        AddOp | Accept => yield AddOpAction::Accept;
+    }
+
+    pub grammar Normal: NormalOut {
         AddOp => yield dispatch_op(Add::default());
         ConnectOp {}
 
@@ -111,7 +143,7 @@ shibari::static_acceptors! {
         Opposite => yield GoToOpposite;
     }
 
-    grammar Global: ActionOut {
+    grammar Global: NormalOut {
         'count: DigitNonzero {
             yield PushCount(c);
 
@@ -129,99 +161,3 @@ shibari::static_acceptors! {
         Home => yield ViewCursor;
     }
 }
-
-mod mode {
-    use keyboard_types::NamedKey;
-    use shibari::Acceptor;
-    use tracing::debug;
-
-    use super::{ActionOut, Key, NormalAccept};
-
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum Mode {
-        Normal(NormalAccept),
-    }
-
-    impl Default for Mode {
-        #[inline]
-        fn default() -> Self { Self::Normal(NormalAccept::default()) }
-    }
-
-    impl Mode {
-        pub fn change(&mut self, to: ModeKind) -> bool {
-            if self.kind() == to {
-                return false;
-            }
-
-            *self = match to {
-                ModeKind::Normal => Self::Normal(NormalAccept::default()),
-            };
-
-            true
-        }
-
-        #[inline]
-        pub fn kind(self) -> ModeKind {
-            match self {
-                Self::Normal(_) => ModeKind::Normal,
-            }
-        }
-    }
-
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum ModeKind {
-        #[default]
-        Normal,
-    }
-
-    impl From<Mode> for ModeKind {
-        #[inline]
-        fn from(value: Mode) -> Self { value.kind() }
-    }
-
-    impl Acceptor<Key> for Mode {
-        type Output = ActionOut;
-
-        fn pending_op(&self) -> &'static str {
-            match self {
-                Self::Normal(a) => a.pending_op(),
-            }
-        }
-
-        fn accept(&mut self, input: Key) -> Self::Output {
-            if matches!(
-                input,
-                Key::Named(
-                    NamedKey::Unidentified
-                        | NamedKey::Alt
-                        | NamedKey::AltGraph
-                        | NamedKey::CapsLock
-                        | NamedKey::Control
-                        | NamedKey::Fn
-                        | NamedKey::FnLock
-                        | NamedKey::Meta
-                        | NamedKey::NumLock
-                        | NamedKey::ScrollLock
-                        | NamedKey::Shift
-                        | NamedKey::Symbol
-                        | NamedKey::SymbolLock,
-                    _
-                )
-            ) {
-                return ActionOut::Advance;
-            }
-
-            debug!("Handling keypress");
-            match self {
-                Self::Normal(a) => a.accept(input),
-            }
-        }
-    }
-
-    #[test]
-    fn mode_default_kind() {
-        assert_eq!(Mode::default().kind(), ModeKind::default());
-    }
-}
-
-pub use mode::*;

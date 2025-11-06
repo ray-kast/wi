@@ -5,11 +5,15 @@ pub mod all {
 }
 
 pub mod prelude {
-    pub use super::{all::*, Operator, OperatorCx, OperatorInner, OperatorResult};
+    pub use std::sync::Arc;
+
+    pub use shibari::Acceptor;
+
+    pub use super::{all::*, Operator, OperatorCx, OperatorInner, OperatorResult, OperatorState};
     pub use crate::{
         actions::prelude::*,
-        bindings::Key,
-        continuation::{ContinueCx, ContinueOnceImpl, Yielded},
+        bindings::*,
+        continuation::{ContinueCx, ContinueOnce, Dispatch, Yielded},
     };
 }
 
@@ -17,18 +21,18 @@ mod imp {
     use enum_dispatch::enum_dispatch;
 
     use super::prelude::*;
-    use crate::GraphWidgetDriver;
+    use crate::DriverInner;
 
     pub struct OperatorCx<'a, 'w, W: GraphWidget + ?Sized> {
-        pub widget: &'a mut W,
-        pub driver: &'a mut GraphWidgetDriver<W>,
+        pub(super) widget: &'a mut W,
+        pub(super) driver: &'a mut DriverInner<W>,
         inner: &'a mut W::Context<'w>,
     }
 
     impl<'a, 'w, W: GraphWidget + ?Sized> OperatorCx<'a, 'w, W> {
         pub const fn new(
             widget: &'a mut W,
-            driver: &'a mut GraphWidgetDriver<W>,
+            driver: &'a mut DriverInner<W>,
             inner: &'a mut W::Context<'w>,
         ) -> Self {
             Self {
@@ -52,7 +56,7 @@ mod imp {
 
     #[enum_dispatch]
     pub trait EditorOperator {
-        fn name(&self) -> Cow<'static, str>;
+        fn state(&self) -> OperatorState;
 
         fn init<W: GraphWidget + ?Sized>(&mut self, cx: OperatorCx<W>) -> bool;
 
@@ -60,45 +64,56 @@ mod imp {
     }
 
     pub trait OperatorInner: Sized {
-        const DEFAULT_NAME: &'static str;
+        const DEFAULT_STATE: OperatorState;
 
         fn new<W: GraphWidget + ?Sized>(cx: OperatorCx<W>) -> Option<Self>;
 
         #[inline]
-        fn name(&self) -> Option<Cow<'static, str>> { None }
+        fn state(&self) -> Option<OperatorState> { None }
 
         fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>) -> OperatorResult;
     }
 
     #[enum_dispatch(EditorOperator)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, PartialEq)]
     pub enum Operator {
         Add,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum OperatorState {
+        Add,
+    }
+
+    impl OperatorState {
+        #[must_use]
+        pub const fn name(self) -> &'static str {
+            match self {
+                Self::Add => "add",
+            }
+        }
     }
 
     impl Operator {
         #[inline]
         #[must_use]
-        pub fn name(self) -> Cow<'static, str> { EditorOperator::name(&self) }
+        pub fn state(&self) -> OperatorState { EditorOperator::state(self) }
     }
 }
 
-pub use imp::{EditorOperator, Operator, OperatorCx, OperatorInner, OperatorResult};
+pub use imp::{EditorOperator, Operator, OperatorCx, OperatorInner, OperatorResult, OperatorState};
 
 macro_rules! operator {
-    ($(#$attr:tt)* $vis:vis $op:ident => $inner_vis:vis $inner:ident) => {
+    ($(#$attr:tt)* $vis:vis struct $op:ident($inner_vis:vis $inner:ty);) => {
         $(#$attr)*
-        $vis struct $op(Option<$inner>);
-
-        $(#$attr)*
-        $inner_vis struct $inner;
+        $vis struct $op($inner_vis Option<$inner>);
 
         impl crate::operators::EditorOperator for $op {
-            fn name(&self) -> ::std::borrow::Cow<'static, str> {
+            fn state(&self) -> crate::operators::OperatorState {
                 self.0.as_ref().and_then(
-                    <$inner as crate::operators::OperatorInner>::name
+                    <$inner as crate::operators::OperatorInner>::state
                 ).unwrap_or_else(|| {
-                    <$inner as crate::operators::OperatorInner>::DEFAULT_NAME.into()
+                    <$inner as crate::operators::OperatorInner>::DEFAULT_STATE.into()
                 })
             }
 

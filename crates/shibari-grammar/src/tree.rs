@@ -504,25 +504,23 @@ mod labels {
 
     use super::{LabelId, Resolved, Root, RootId, SmallVec, TokenId, Tree, TreeDelta};
 
+    type RootIter<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> =
+        std::slice::Iter<'a, Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>;
+
+    type PathItem<'a, Output, ExtendConversion, LeafExtra, TreeExtra> = (
+        Option<TokenId>,
+        &'a Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
+    );
+
     #[must_use = "This struct does nothing unless iterated"]
     #[derive(Debug)]
     pub struct Labels<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
         roots: std::iter::Enumerate<
-            std::slice::Iter<'a, Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>,
+            RootIter<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
         >,
 
-        tree_stack: SmallVec<
-            [(
-                Option<TokenId>,
-                &'a Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
-            ); 2],
-        >,
-        tree_buf: SmallVec<
-            [(
-                Option<TokenId>,
-                &'a Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
-            ); 1],
-        >,
+        tree_stack: SmallVec<[PathItem<'a, Output, ExtendConversion, LeafExtra, TreeExtra>; 2]>,
+        tree_buf: SmallVec<[PathItem<'a, Output, ExtendConversion, LeafExtra, TreeExtra>; 1]>,
         token_path: SmallVec<[TokenId; 2]>,
 
         state: State<'a, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,

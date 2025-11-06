@@ -4,7 +4,7 @@ use tracing::{debug, instrument};
 
 use crate::{
     actions::{ActionCx, EditorAction},
-    bindings::{ActionOut, Key},
+    bindings::{Key, NormalOut},
     operators::{EditorOperator, OperatorCx, OperatorResult},
     GraphWidget, GraphWidgetDriver,
 };
@@ -29,7 +29,11 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, cx),
-        fields(mode = ?self.mode, pending = ?self.mode.pending_op()),
+        fields(
+            op = ?self.current_operator,
+            mode = ?self.inner.mode,
+            pending = ?self.inner.mode.pending_op(),
+        ),
     )]
     #[inline]
     pub fn handle_char_input(
@@ -52,7 +56,11 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[instrument(
         skip(self, widget, ctx),
-        fields(mode = ?self.mode, pending = ?self.mode.pending_op()),
+        fields(
+            op = ?self.current_operator,
+            mode = ?self.inner.mode,
+            pending = ?self.inner.mode.pending_op(),
+        ),
     )]
     #[inline]
     pub fn handle_named_keypress(
@@ -68,50 +76,53 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     }
 
     fn handle_key(&mut self, widget: &mut W, key: Key, cx: &mut W::Context<'_>) -> bool {
-        if let Some(mut operator) = self.operators.pop() {
-            match operator.step(key, OperatorCx::new(widget, self, cx)) {
-                OperatorResult::Continue => {
-                    self.operators.push(operator);
-                    return true;
+        if let Some(ref mut operator) = self.current_operator {
+            return match operator.step(key, OperatorCx::new(widget, &mut self.inner, cx)) {
+                OperatorResult::Continue => true,
+                OperatorResult::Finish => {
+                    self.pop_operator().unwrap_or_else(|| unreachable!());
+                    true
                 },
-                OperatorResult::Finish => return true,
-                OperatorResult::Abort => (),
-            }
+                OperatorResult::Abort => {
+                    self.pop_operator().unwrap_or_else(|| unreachable!());
+                    false
+                },
+            };
         }
 
-        match self.mode.accept(key) {
-            ActionOut::Trap => {
-                self.count = None;
+        match self.inner.mode.accept(key) {
+            NormalOut::Trap => {
+                self.inner.count = None;
                 false
             },
-            ActionOut::Advance => true,
-            ActionOut::Action(action) => {
+            NormalOut::Advance => true,
+            NormalOut::Action(action) => {
                 debug!(
                     action = action.name().as_ref(),
-                    count = self.count,
+                    count = self.inner.count,
                     "Processing action"
                 );
-                let handled = action.process(self.count.take(), ActionCx {
+                let handled = action.process(self.inner.count.take(), ActionCx {
                     widget,
                     driver: self,
                     inner: cx,
                 });
 
                 if handled && !action.is_silent() {
-                    self.last_action = Some(action);
+                    self.inner.last_action = Some(action);
                 }
 
                 handled
             },
-            ActionOut::Operator(mut operator) => {
-                let handled = operator.init(OperatorCx::new(widget, self, cx));
+            NormalOut::Operator(mut operator) => {
+                let handled = operator.init(OperatorCx::new(widget, &mut self.inner, cx));
 
                 if handled {
-                    debug!(operator = operator.name().as_ref(), "Pushing operator");
-                    self.operators.push(operator);
+                    debug!(operator = operator.state().name(), "Pushing operator");
+                    self.push_operator(operator);
                 } else {
                     debug!(
-                        operator = operator.name().as_ref(),
+                        operator = operator.state().name(),
                         "Operator did not initialize"
                     );
                 }

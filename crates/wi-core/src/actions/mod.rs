@@ -3,7 +3,7 @@ use std::{
     num::{NonZero, NonZeroU32},
 };
 
-use crate::{bindings::ModeKind, GraphWidget};
+use crate::{mode::ModeKind, GraphWidget};
 
 mod cursor;
 mod delete;
@@ -147,7 +147,7 @@ mod imp {
 pub use imp::{Action, ActionCx, EditorAction, EditorMotion, Motion};
 
 mod basic {
-    use crate::bindings::ModeKind;
+    use crate::mode::ModeKind;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct PushCount(pub char);
@@ -169,7 +169,7 @@ impl EditorAction for basic::PushCount {
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(digit) = self;
         let digit = u32::from(digit) - u32::from('0');
-        cx.driver.count = count
+        cx.driver.inner.count = count
             .map_or(0, NonZero::get)
             .checked_mul(10)
             .and_then(|c| c.checked_add(digit))
@@ -194,7 +194,7 @@ impl EditorAction for basic::SetMode {
         let Self(m) = self;
         let None = count else { return false };
 
-        cx.driver.mode.change(m)
+        cx.driver.inner.mode.change(m)
     }
 }
 
@@ -208,7 +208,7 @@ impl EditorAction for basic::ToggleDebug {
     fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
-        cx.driver.debug = !cx.driver.debug;
+        cx.driver.inner.debug = !cx.driver.inner.debug;
 
         true
     }
