@@ -6,10 +6,12 @@ mod create;
 mod cursor;
 mod delete;
 mod jump;
+mod quit;
 
 pub mod all {
     pub use super::{
         basic::*, create::actions::*, cursor::actions::*, delete::actions::*, jump::actions::*,
+        quit::actions::*,
     };
 }
 
@@ -88,6 +90,9 @@ mod imp {
 
         // From delete
         DeleteAtCursor(DeleteAtCursor),
+
+        // From quit
+        Quit(Quit),
     }
 
     #[impl_enum]
@@ -127,6 +132,7 @@ mod imp {
         ModeNormal,
         Motion(MotionKind),
         PushCount,
+        Quit,
         ToggleDebug,
         ViewCursor,
     }
@@ -146,6 +152,7 @@ mod imp {
                 Self::ModeNormal => "normal mode",
                 Self::Motion(m) => m.name(),
                 Self::PushCount => "push count",
+                Self::Quit => "quit",
                 Self::ToggleDebug => "toggle debug",
                 Self::ViewCursor => "view cursor",
             }

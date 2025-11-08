@@ -54,7 +54,7 @@ pub fn run(args: Args, input: Input) -> TokenStream {
         ) => run_impl(args, i, &mut diag),
         _ => input
             .span()
-            .error("#[impl_enum] may only be used on enum or trait impl items")
+            .error("#[impl_enum] may only be used on enum or impl items")
             .into_compile_error(),
     };
 

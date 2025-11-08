@@ -165,8 +165,10 @@ pub trait GraphWidget {
         &mut self,
         kind: Self::NodeKind,
         position: Self::Point,
-        ctx: &mut Self::Context<'_>,
+        cx: &mut Self::Context<'_>,
     );
+
+    fn quit(&mut self, cx: &mut Self::Context<'_>);
 }
 
 #[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]

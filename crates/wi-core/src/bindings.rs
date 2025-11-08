@@ -73,10 +73,12 @@ static_acceptors! {
     token Home = N(K::Home, M_NONE);
     token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE);
 
+    token CommandOp = C(':', M_NONE | M_SHIFT) => ":";
     token CreateOp = C('c', M_NONE);
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
+    token Quit = C('q', M_NONE);
 
     token Debug = C('d', M_NONE);
 
@@ -126,6 +128,11 @@ static_acceptors! {
         }
 
         Escape => yield SetMode(ModeKind::Normal);
+
+        CommandOp {
+            Quit => yield Quit;
+        }
+
         ViewOp {
             ViewOp => yield ViewCursor;
             Debug => yield ToggleDebug;

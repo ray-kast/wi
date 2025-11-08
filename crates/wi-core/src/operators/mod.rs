@@ -9,9 +9,7 @@ pub mod prelude {
 
     pub use shibari::Acceptor;
 
-    pub use super::{
-        all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorResult, OperatorState,
-    };
+    pub use super::{all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorState};
     pub use crate::{
         actions::prelude::*,
         bindings::*,

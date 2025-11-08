@@ -416,4 +416,6 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         make_mut!(self.graph).add_node(kind.into());
         ctx.request_render();
     }
+
+    fn quit(&mut self, ctx: &mut Self::Context<'_>) { ctx.exit(); }
 }
