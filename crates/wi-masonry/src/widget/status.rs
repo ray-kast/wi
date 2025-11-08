@@ -11,7 +11,7 @@ use wi_core::{ModeKind, Status};
 pub struct RenderedStatus {
     mode: Cow<'static, str>,
     mode_brush: AlphaColor<Srgb>,
-    last_action: Cow<'static, str>,
+    last_action: &'static str,
     chord: String,
 }
 
@@ -31,7 +31,7 @@ impl RenderedStatus {
             write!(chord, "{count}").unwrap();
         }
 
-        let last_action = last_action.map_or(Cow::Borrowed(""), wi_core::Action::name);
+        let last_action = last_action.map_or("", wi_core::ActionKind::name);
 
         write!(chord, "{pending_op}").unwrap();
 

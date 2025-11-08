@@ -1,25 +1,22 @@
-use std::{
-    borrow::Cow,
-    num::{NonZero, NonZeroU32},
-};
+use std::num::{NonZero, NonZeroU32};
 
-use crate::{mode::ModeKind, GraphWidget};
+use crate::GraphWidget;
 
+mod create;
 mod cursor;
 mod delete;
 mod jump;
 
 pub mod all {
-    pub use super::{basic::*, cursor::actions::*, delete::actions::*, jump::actions::*};
+    pub use super::{
+        basic::*, create::actions::*, cursor::actions::*, delete::actions::*, jump::actions::*,
+    };
 }
 
 pub mod prelude {
-    pub use std::{
-        borrow::Cow,
-        num::{NonZero, NonZeroU32},
-    };
+    pub use std::num::{NonZero, NonZeroU32};
 
-    pub use super::{all::*, Action, ActionCx, EditorAction, EditorMotion, Motion};
+    pub(crate) use super::{all::*, ActionCx, EditorAction, EditorMotion};
     pub use crate::{
         cursor::{Selection, SelectionExt},
         GraphWidget,
@@ -46,68 +43,126 @@ pub mod prelude {
 }
 
 mod imp {
-    use enum_dispatch::enum_dispatch;
+    use std::hash::Hash;
+
+    use derive_where::derive_where;
+    use wi_macros::impl_enum;
 
     use super::prelude::*;
-    use crate::{cursor::NullSelection, GraphWidgetDriver};
+    use crate::{cursor::NullSelection, DriverInner};
 
     pub struct ActionCx<'a, 'w, W: GraphWidget + ?Sized> {
         pub widget: &'a mut W,
-        pub driver: &'a mut GraphWidgetDriver<W>,
+        pub driver: &'a mut DriverInner<W>,
         pub inner: &'a mut W::Context<'w>,
     }
 
-    impl<'w, W: GraphWidget + ?Sized> ActionCx<'_, 'w, W> {
+    pub(crate) trait Kind<K: Copy + Eq + Hash> {
+        fn kind(&self) -> K;
+    }
+
+    pub(crate) trait EditorAction<W: GraphWidget + ?Sized>: Kind<ActionKind> {
+        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool;
+    }
+
+    #[impl_enum]
+    #[derive_where(Debug, Clone, Copy, PartialEq, Eq, Hash; W::NodeKind, W::Point)]
+    pub enum Action<W: GraphWidget + ?Sized> {
+        SimpleAction(SimpleAction),
+
+        // From create
+        CreateNode(CreateNode<W>),
+    }
+
+    #[impl_enum]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum SimpleAction {
+        // Basic
+        Motion(Motion),
+        PushCount(PushCount),
+        SetMode(SetMode),
+        ToggleDebug(ToggleDebug),
+
+        // From cursor
+        ViewCursor(ViewCursor),
+
+        // From delete
+        DeleteAtCursor(DeleteAtCursor),
+    }
+
+    #[impl_enum]
+    impl<W: GraphWidget + ?Sized> Kind<ActionKind> for Action<W> {
+        fn kind(&self) -> ActionKind { dispatch!(self) }
+    }
+
+    #[impl_enum]
+    impl Kind<ActionKind> for SimpleAction {
+        fn kind(&self) -> ActionKind { dispatch!(self) }
+    }
+
+    #[impl_enum]
+    impl<W: GraphWidget + ?Sized> EditorAction<W> for Action<W> {
         #[inline]
-        pub fn reborrow<'b>(&'b mut self) -> ActionCx<'b, 'w, W> {
-            ActionCx {
-                widget: &mut *self.widget,
-                driver: &mut *self.driver,
-                inner: &mut *self.inner,
+        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+            dispatch!(self, count, cx)
+        }
+    }
+
+    #[impl_enum]
+    impl<W: GraphWidget + ?Sized> EditorAction<W> for SimpleAction {
+        #[inline]
+        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+            dispatch!(self, count, cx)
+        }
+    }
+
+    impl<W: GraphWidget + ?Sized> Action<W> {
+        pub fn kind(&self) -> ActionKind { Kind::kind(self) }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ActionKind {
+        CreateNode,
+        DeleteAtCursor,
+        ModeNormal,
+        Motion(MotionKind),
+        PushCount,
+        ToggleDebug,
+        ViewCursor,
+    }
+
+    impl From<MotionKind> for ActionKind {
+        #[inline]
+        fn from(value: MotionKind) -> Self { Self::Motion(value) }
+    }
+
+    impl ActionKind {
+        #[inline]
+        #[must_use]
+        pub fn name(self) -> &'static str {
+            match self {
+                Self::CreateNode => "create node",
+                Self::DeleteAtCursor => "delete at cursor",
+                Self::ModeNormal => "normal mode",
+                Self::Motion(m) => m.name(),
+                Self::PushCount => "push count",
+                Self::ToggleDebug => "toggle debug",
+                Self::ViewCursor => "view cursor",
+            }
+        }
+
+        #[inline]
+        #[must_use]
+        pub fn is_silent(self) -> bool {
+            match self {
+                Self::Motion(m) => m.is_silent(),
+                Self::PushCount => true,
+                _ => false,
             }
         }
     }
 
-    #[enum_dispatch]
-    pub trait EditorAction {
-        #[inline]
-        fn is_silent(&self) -> bool { false }
-
-        fn name(&self) -> Cow<'static, str>;
-
-        fn process<W: GraphWidget + ?Sized>(
-            self,
-            count: Option<NonZeroU32>,
-            cx: ActionCx<W>,
-        ) -> bool;
-    }
-
-    #[enum_dispatch(EditorAction)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum Action {
-        // Basic
-        Motion,
-        PushCount,
-        SetMode,
-        ToggleDebug,
-
-        // From cursor
-        ViewCursor,
-
-        // From delete
-        DeleteAtCursor,
-    }
-
-    impl Action {
-        #[inline]
-        #[must_use]
-        pub fn name(self) -> Cow<'static, str> { EditorAction::name(&self) }
-    }
-
-    #[enum_dispatch]
-    pub trait EditorMotion {
-        fn name(&self) -> Cow<'static, str>;
-
+    pub(crate) trait EditorMotion: Kind<MotionKind> {
         fn process<W: GraphWidget + ?Sized, S: Selection>(
             self,
             count: Option<NonZeroU32>,
@@ -116,60 +171,109 @@ mod imp {
         ) -> bool;
     }
 
-    impl<T: EditorMotion> EditorAction for T {
+    impl<T: Kind<MotionKind>> Kind<ActionKind> for T {
         #[inline]
-        fn is_silent(&self) -> bool { true }
+        fn kind(&self) -> ActionKind { ActionKind::Motion(Kind::<MotionKind>::kind(self)) }
+    }
 
-        #[inline]
-        fn name(&self) -> Cow<'static, str> { EditorMotion::name(self) }
-
-        fn process<W: GraphWidget + ?Sized>(
-            self,
-            count: Option<NonZeroU32>,
-            cx: ActionCx<W>,
-        ) -> bool {
+    impl<W: GraphWidget + ?Sized, T: EditorMotion> EditorAction<W> for T {
+        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
             EditorMotion::process(self, count, cx, NullSelection)
         }
     }
 
-    #[enum_dispatch(EditorMotion)]
+    #[impl_enum]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Motion {
         // From cursor
-        GoToOpposite,
-        StepCursor,
+        GoToOpposite(GoToOpposite),
+        StepCursor(StepCursor),
 
         // From jump
+        JumpToPort(JumpToPort),
+    }
+
+    #[impl_enum]
+    impl Kind<MotionKind> for Motion {
+        fn kind(&self) -> MotionKind { dispatch!(self) }
+    }
+
+    #[impl_enum]
+    impl EditorMotion for Motion {
+        #[inline]
+        fn process<W: GraphWidget + ?Sized, S: Selection>(
+            self,
+            count: Option<NonZeroU32>,
+            cx: ActionCx<W>,
+            selection: S,
+        ) -> bool {
+            dispatch!(self, count, cx, selection)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum MotionKind {
+        GoToOpposite,
+        JumpToInput,
+        JumpToOutput,
         JumpToPort,
+        StepDown,
+        StepLeft,
+        StepRight,
+        StepUp,
+    }
+
+    impl MotionKind {
+        #[inline]
+        #[must_use]
+        pub fn name(self) -> &'static str {
+            match self {
+                Self::GoToOpposite => "go to opposite",
+                Self::JumpToInput => "jump to input",
+                Self::JumpToOutput => "jump to output",
+                Self::JumpToPort => "jump to port",
+                Self::StepDown => "step down",
+                Self::StepLeft => "step left",
+                Self::StepRight => "step right",
+                Self::StepUp => "step up",
+            }
+        }
+
+        #[inline]
+        #[must_use]
+        pub fn is_silent(self) -> bool {
+            matches!(
+                self,
+                Self::StepDown | Self::StepLeft | Self::StepRight | Self::StepUp
+            )
+        }
     }
 }
 
-pub use imp::{Action, ActionCx, EditorAction, EditorMotion, Motion};
+pub use imp::{Action, ActionCx, ActionKind, Motion, MotionKind, SimpleAction};
+pub(crate) use imp::{EditorAction, EditorMotion, Kind};
 
 mod basic {
-    use crate::mode::ModeKind;
+    use crate::{actions::ActionKind, mode::ModeKind};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(ActionKind)]
     pub struct PushCount(pub char);
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct SetMode(pub ModeKind);
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(ActionKind)]
+    pub struct SetMode(#[kind(ModeKind::Normal => ActionKind::ModeNormal)] pub ModeKind);
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(ActionKind)]
     pub struct ToggleDebug;
 }
 
-impl EditorAction for basic::PushCount {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "push count".into() }
-
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+impl<W: GraphWidget + ?Sized> EditorAction<W> for basic::PushCount {
+    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(digit) = self;
         let digit = u32::from(digit) - u32::from('0');
-        cx.driver.inner.count = count
+        cx.driver.count = count
             .map_or(0, NonZero::get)
             .checked_mul(10)
             .and_then(|c| c.checked_add(digit))
@@ -178,37 +282,20 @@ impl EditorAction for basic::PushCount {
     }
 }
 
-impl EditorAction for basic::SetMode {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
-    fn name(&self) -> Cow<'static, str> {
-        let Self(m) = self;
-        match m {
-            ModeKind::Normal => "normal mode",
-        }
-        .into()
-    }
-
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+impl<W: GraphWidget + ?Sized> EditorAction<W> for basic::SetMode {
+    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let Self(m) = self;
         let None = count else { return false };
 
-        cx.driver.inner.mode.change(m)
+        cx.driver.mode.change(m)
     }
 }
 
-impl EditorAction for basic::ToggleDebug {
-    #[inline]
-    fn is_silent(&self) -> bool { true }
-
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "toggle debug".into() }
-
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+impl<W: GraphWidget + ?Sized> EditorAction<W> for basic::ToggleDebug {
+    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
-        cx.driver.inner.debug = !cx.driver.inner.debug;
+        cx.driver.debug = !cx.driver.debug;
 
         true
     }

@@ -1,6 +1,7 @@
-use std::fmt;
-
-use crate::{operators::Operator, DriverInner, GraphWidget, GraphWidgetDriver};
+use crate::{
+    operators::{CurrentOperator, OpYielded},
+    DriverInner, GraphWidget, GraphWidgetDriver,
+};
 
 #[derive(Debug)]
 pub enum Dispatch<I, D> {
@@ -8,42 +9,19 @@ pub enum Dispatch<I, D> {
     Deferred(D),
 }
 
-type ContinueDispatch<'a> = Dispatch<(), Option<&'a mut Operator>>;
+type ContinueDispatch<'a, Y> = Dispatch<Y, &'a mut CurrentOperator>;
 
-pub struct ContinueCx<'a, 'w, W: GraphWidget + ?Sized> {
-    pub(crate) widget: &'a mut W,
-    pub(crate) driver: &'a mut DriverInner<W>,
-    pub(crate) dispatch: ContinueDispatch<'a>,
+#[derive_where::derive_where(Debug;
+    W, W::Context<'w>, W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind, Y)]
+pub struct ContinueCx<'a, 'w, W: GraphWidget + ?Sized, Y> {
+    widget: &'a mut W,
+    driver: &'a mut DriverInner<W>,
+    dispatch: ContinueDispatch<'a, Y>,
     inner: &'a mut W::Context<'w>,
 }
 
-impl<W: fmt::Debug + GraphWidget + ?Sized> fmt::Debug for ContinueCx<'_, '_, W>
-where
-    W::NodeId: fmt::Debug,
-    W::PortId: fmt::Debug,
-    W::Cell: fmt::Debug,
-    W::Point: fmt::Debug,
-    for<'a> W::Context<'a>: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            widget,
-            driver,
-            dispatch,
-            inner,
-        } = self;
-
-        f.debug_struct("ContinueCx")
-            .field("widget", widget)
-            .field("driver", driver)
-            .field("dispatch", dispatch)
-            .field("inner", inner)
-            .finish()
-    }
-}
-
-impl<'a, 'w, W: GraphWidget + ?Sized> ContinueCx<'a, 'w, W> {
-    pub const fn new(
+impl<'a, 'w, W: GraphWidget + ?Sized, Y> ContinueCx<'a, 'w, W, Y> {
+    pub const fn new_deferred(
         widget: &'a mut W,
         driver: &'a mut GraphWidgetDriver<W>,
         inner: &'a mut W::Context<'w>,
@@ -51,54 +29,63 @@ impl<'a, 'w, W: GraphWidget + ?Sized> ContinueCx<'a, 'w, W> {
         Self {
             widget,
             driver: &mut driver.inner,
-            dispatch: Dispatch::Deferred(driver.current_operator.as_mut()),
+            dispatch: Dispatch::Deferred(&mut driver.current_operator),
             inner,
         }
     }
+}
 
-    pub(crate) const fn into_op_cx(
-        self,
-    ) -> (
-        ContinueDispatch<'a>,
-        crate::operators::OperatorCx<'a, 'w, W>,
-    ) {
+impl<'a, 'c, 'w, W: GraphWidget + ?Sized, Y> ContinueCx<'a, 'w, W, OpYielded<'a, 'c, Y>> {
+    pub(crate) fn into_op_cx(self) -> (Option<Y>, crate::operators::OperatorCx<'a, 'c, 'w, W>) {
+        let (caller, dispatch) = match self.dispatch {
+            Dispatch::Immediate((d, y)) => (Some(y), d),
+            Dispatch::Deferred(c) => (None, Dispatch::Deferred(c)),
+        };
+
         (
-            self.dispatch,
-            crate::operators::OperatorCx::new(self.widget, self.driver, self.inner),
+            caller,
+            crate::operators::OperatorCx::new(self.widget, self.driver, self.inner, dispatch),
         )
     }
 }
 
-pub trait ContinueOnce<W: GraphWidget + ?Sized, T> {
-    fn continue_once(self, value: T, cx: ContinueCx<W>);
+pub trait ContinueOnce<W: GraphWidget + ?Sized, Y, T> {
+    fn continue_once(self, value: T, cx: ContinueCx<W, Y>);
 }
 
 #[expect(
     missing_debug_implementations,
     reason = "This is usually going to be paramaterized"
 )]
-pub struct Yielded<'a, 'w, W: GraphWidget + ?Sized, C> {
+pub struct Yielded<'a, 'w, W: GraphWidget + ?Sized, Y, C> {
     driver: &'a mut DriverInner<W>,
     cx: &'a mut W::Context<'w>,
+    caller: Y,
     then: C,
 }
 
-impl<'a, 'w, W: GraphWidget + ?Sized, C> Yielded<'a, 'w, W, C> {
+impl<'a, 'w, W: GraphWidget + ?Sized, Y, C> Yielded<'a, 'w, W, Y, C> {
     pub(crate) const fn new(
         then: C,
         driver: &'a mut DriverInner<W>,
+        caller: Y,
         cx: &'a mut W::Context<'w>,
     ) -> Self {
-        Self { driver, cx, then }
+        Self {
+            driver,
+            cx,
+            caller,
+            then,
+        }
     }
 
     #[inline]
     pub fn resume_now<T>(self, widget: &'a mut W, value: T)
-    where C: ContinueOnce<W, T> {
+    where C: ContinueOnce<W, Y, T> {
         self.then.continue_once(value, ContinueCx {
             widget,
             driver: self.driver,
-            dispatch: Dispatch::Immediate(()),
+            dispatch: Dispatch::Immediate(self.caller),
             inner: self.cx,
         });
     }

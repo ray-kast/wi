@@ -41,7 +41,7 @@ pub(super) fn run(input: Input) -> TokenStream {
 
     let cx = BaseCx {
         acceptor_path: quote_spanned! { shibari.span() => #shibari::Acceptor },
-        accept_state_path: quote_spanned! { shibari.span() => #shibari::AcceptState },
+        accept_state_path: quote_spanned! { shibari.span() => #shibari::AcceptorOutput },
         input_ty,
     };
 

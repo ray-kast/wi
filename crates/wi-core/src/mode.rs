@@ -2,7 +2,7 @@ use keyboard_types::NamedKey;
 use shibari::Acceptor;
 use tracing::debug;
 
-use crate::bindings::{Key, NormalAccept, NormalOut};
+use crate::bindings::{ActionOut, Key, NormalAccept};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -47,7 +47,7 @@ impl From<Mode> for ModeKind {
 }
 
 impl Acceptor<Key> for Mode {
-    type Output = NormalOut;
+    type Output = ActionOut;
 
     fn pending_op(&self) -> &'static str {
         match self {
@@ -75,7 +75,7 @@ impl Acceptor<Key> for Mode {
                 _
             )
         ) {
-            return NormalOut::Advance;
+            return ActionOut::Advance;
         }
 
         debug!("Handling keypress");

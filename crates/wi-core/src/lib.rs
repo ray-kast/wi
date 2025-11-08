@@ -1,17 +1,18 @@
-use std::{
-    fmt, mem,
-    num::{NonZeroIsize, NonZeroU32},
-};
+use std::num::{NonZeroIsize, NonZeroU32};
 
-pub use crate::{
+use crate::{
     actions::Action,
+    mode::Mode,
+    operators::{CurrentOperator, Operator},
+};
+pub use crate::{
+    actions::{ActionKind, MotionKind},
     continuation::{ContinueCx, ContinueOnce, Yielded},
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     mode::ModeKind,
     operators::OperatorState,
     status::Status,
 };
-use crate::{mode::Mode, operators::Operator};
 
 pub extern crate shibari;
 
@@ -155,18 +156,27 @@ pub trait GraphWidget {
 
     fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool;
 
-    fn prompt_node_kind<C: ContinueOnce<Self, Option<Self::NodeKind>>>(
+    fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
-        then: Yielded<Self, C>,
+        then: Yielded<Self, Y, C>,
+    );
+
+    fn create_node(
+        &mut self,
+        kind: Self::NodeKind,
+        position: Self::Point,
+        ctx: &mut Self::Context<'_>,
     );
 }
 
+#[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]
 #[must_use]
 pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
-    current_operator: Option<Operator>,
+    current_operator: CurrentOperator,
     inner: DriverInner<W>,
 }
 
+#[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]
 struct DriverInner<W: GraphWidget + ?Sized> {
     cursor: Option<WCursor<W>>,
     cell: W::Cell,
@@ -175,62 +185,14 @@ struct DriverInner<W: GraphWidget + ?Sized> {
     count: Option<NonZeroU32>,
     stashed_operators: Vec<Operator>,
     mode: Mode,
-    last_action: Option<Action>,
-}
-
-impl<W: GraphWidget + ?Sized> fmt::Debug for GraphWidgetDriver<W>
-where
-    W::NodeId: fmt::Debug,
-    W::PortId: fmt::Debug,
-    W::Cell: fmt::Debug,
-    W::Point: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            current_operator,
-            inner,
-        } = self;
-        f.debug_struct("GraphWidgetDriver")
-            .field("current_operator", current_operator)
-            .field("inner", inner)
-            .finish()
-    }
-}
-
-impl<W: GraphWidget + ?Sized> fmt::Debug for DriverInner<W>
-where
-    W::NodeId: fmt::Debug,
-    W::PortId: fmt::Debug,
-    W::Cell: fmt::Debug,
-    W::Point: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            cursor,
-            cell,
-            debug,
-            count,
-            stashed_operators,
-            mode,
-            last_action,
-        } = self;
-        f.debug_struct("GraphWidgetDriver")
-            .field("cursor", cursor)
-            .field("cell", cell)
-            .field("debug", debug)
-            .field("count", count)
-            .field("stashed_operators", stashed_operators)
-            .field("mode", mode)
-            .field("last_action", last_action)
-            .finish()
-    }
+    last_action: Option<Action<W>>,
 }
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     pub fn new(widget: &W) -> Self {
         let cursor = widget.default_cursor();
         let me = Self {
-            current_operator: None,
+            current_operator: CurrentOperator::default(),
             inner: DriverInner {
                 cell: W::Cell::of_cursor(widget, &cursor),
                 cursor: Some(cursor),
@@ -257,31 +219,4 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
     #[inline]
     pub fn view_debug(&self) -> bool { self.inner.debug }
-
-    fn push_operator(&mut self, operator: Operator) -> &mut Operator {
-        match &mut self.current_operator {
-            o @ None => {
-                debug_assert!(self.inner.stashed_operators.is_empty());
-                *o = Some(operator);
-                o.as_mut().unwrap_or_else(|| unreachable!())
-            },
-            Some(o) => {
-                self.inner.stashed_operators.push(mem::replace(o, operator));
-                o
-            },
-        }
-    }
-
-    fn pop_operator(&mut self) -> Option<Operator> {
-        match self.current_operator.take() {
-            None => {
-                debug_assert!(self.inner.stashed_operators.is_empty());
-                None
-            },
-            Some(o) => {
-                self.current_operator = self.inner.stashed_operators.pop();
-                Some(o)
-            },
-        }
-    }
 }

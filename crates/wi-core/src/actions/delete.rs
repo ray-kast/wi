@@ -4,7 +4,10 @@ use crate::{
 };
 
 pub(super) mod actions {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+    use crate::actions::ActionKind;
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(ActionKind)]
     pub struct DeleteAtCursor;
 }
 
@@ -65,20 +68,12 @@ fn fixup_cursor<W: GraphWidget + ?Sized>(
     Some(fixed)
 }
 
-impl EditorAction for actions::DeleteAtCursor {
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "delete at cursor".into() }
-
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
+    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
-        let cursor = cx
-            .driver
-            .inner
-            .cursor
-            .as_mut()
-            .unwrap_or_else(|| unreachable!());
-        let cell = &mut cx.driver.inner.cell;
+        let cursor = cx.driver.cursor.as_mut().unwrap_or_else(|| unreachable!());
+        let cell = &mut cx.driver.cell;
         let fixed = fixup_cursor(
             cx.widget,
             cursor,

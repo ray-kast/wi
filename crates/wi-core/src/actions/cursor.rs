@@ -4,15 +4,29 @@ use crate::{
 };
 
 pub(super) mod actions {
-    use crate::Step;
+    use crate::{
+        actions::{ActionKind, MotionKind},
+        Step,
+    };
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct StepCursor(pub Step);
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(MotionKind)]
+    pub struct StepCursor(
+        #[kind(
+            Step::Left => MotionKind::StepLeft,
+            Step::Down => MotionKind::StepDown,
+            Step::Up => MotionKind::StepUp,
+            Step::Right => MotionKind::StepRight,
+        )]
+        pub Step,
+    );
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(ActionKind)]
     pub struct ViewCursor;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
+    #[kind(MotionKind)]
     pub struct GoToOpposite;
 }
 
@@ -68,16 +82,12 @@ fn move_cursor<W: GraphWidget + ?Sized>(
         &W::Cell,
     ) -> (Option<NonZeroU32>, WCursor<W>, AlignCell),
 ) -> bool {
-    let cell = &mut cx.driver.inner.cell;
+    let cell = &mut cx.driver.cell;
 
     let any = run_with_count(count, |steps| {
         let (dec, cursor, align) = f(
             steps,
-            cx.driver
-                .inner
-                .cursor
-                .take()
-                .unwrap_or_else(|| unreachable!()),
+            cx.driver.cursor.take().unwrap_or_else(|| unreachable!()),
             cx.widget,
             cell,
         );
@@ -85,31 +95,23 @@ fn move_cursor<W: GraphWidget + ?Sized>(
         if dec.is_some() {
             cell.align_to_cursor(cx.widget, &cursor, align);
         }
-        cx.driver.inner.cursor = Some(cursor);
+        cx.driver.cursor = Some(cursor);
 
         dec
     });
 
     if any {
-        cx.widget
-            .update_cursor(CursorUpdate::Move, cx.driver.cursor(), cx.inner);
+        cx.widget.update_cursor(
+            CursorUpdate::Move,
+            cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
+            cx.inner,
+        );
     }
 
     any
 }
 
 impl EditorMotion for actions::StepCursor {
-    fn name(&self) -> Cow<'static, str> {
-        let Self(step) = self;
-        match step {
-            Step::Left => "step left",
-            Step::Down => "step down",
-            Step::Up => "step up",
-            Step::Right => "step right",
-        }
-        .into()
-    }
-
     fn process<W: GraphWidget + ?Sized, S: Selection>(
         self,
         count: Option<NonZeroU32>,
@@ -194,25 +196,19 @@ impl EditorMotion for actions::StepCursor {
     }
 }
 
-impl EditorAction for actions::ViewCursor {
-    #[inline]
-    fn name(&self) -> Cow<'static, str> {
-        let Self = self;
-        "view cursor".into()
-    }
-
-    fn process<W: GraphWidget + ?Sized>(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::ViewCursor {
+    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
-        cx.widget
-            .update_cursor(CursorUpdate::CenterInView, cx.driver.cursor(), cx.inner);
+        cx.widget.update_cursor(
+            CursorUpdate::CenterInView,
+            cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
+            cx.inner,
+        );
         true
     }
 }
 
 impl EditorMotion for actions::GoToOpposite {
-    #[inline]
-    fn name(&self) -> Cow<'static, str> { "go to opposite".into() }
-
     fn process<W: GraphWidget + ?Sized, S: Selection>(
         self,
         count: Option<NonZeroU32>,

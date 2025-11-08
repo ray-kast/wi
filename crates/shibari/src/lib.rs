@@ -10,12 +10,12 @@ pub trait Acceptor<T> {
     fn accept(&mut self, input: T) -> Self::Output;
 }
 
-pub trait AcceptState {
+pub trait AcceptorOutput {
     const TRAP: Self;
     const ADVANCE: Self;
 }
 
-impl<T> AcceptState for Option<T> {
+impl<T> AcceptorOutput for Option<T> {
     const ADVANCE: Self = None;
     const TRAP: Self = None;
 }
@@ -33,7 +33,7 @@ impl std::error::Error for TrapError {}
 
 pub type AcceptResult<T> = Result<Option<T>, TrapError>;
 
-impl<T> AcceptState for AcceptResult<T> {
+impl<T> AcceptorOutput for AcceptResult<T> {
     const ADVANCE: Self = Ok(None);
     const TRAP: Self = Err(TrapError);
 }

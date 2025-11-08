@@ -1,8 +1,7 @@
 use proc_macro::TokenStream as TokenStream1;
 
-mod acceptor_output;
-mod derive_attr;
-mod static_acceptors;
+mod impl_enum;
+mod kind;
 
 pub(crate) mod prelude {
     pub use proc_macro2::{Span, TokenStream};
@@ -23,20 +22,23 @@ pub(crate) mod prelude {
     }
 }
 
-#[proc_macro_derive(AcceptorOutput, attributes(shibari))]
-pub fn acceptor_output(input: TokenStream1) -> TokenStream1 {
+#[proc_macro_attribute]
+pub fn impl_enum(attr: TokenStream1, input: TokenStream1) -> TokenStream1 {
     #![expect(clippy::let_and_return)]
-    let out = acceptor_output::run(syn::parse_macro_input!(input))
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into();
+
+    let mut args = impl_enum::Args::default();
+    let parser = args.parser();
+    syn::parse_macro_input!(attr with parser);
+
+    let out = impl_enum::run(args, syn::parse_macro_input!(input)).into();
     // eprintln!("{out}");
     out
 }
 
-#[proc_macro]
-pub fn static_acceptors(input: TokenStream1) -> TokenStream1 {
+#[proc_macro_derive(Kind, attributes(kind))]
+pub fn kind(input: TokenStream1) -> TokenStream1 {
     #![expect(clippy::let_and_return)]
-    let out = static_acceptors::run(syn::parse_macro_input!(input)).into();
+    let out = kind::run(syn::parse_macro_input!(input)).into();
     // eprintln!("{out}");
     out
 }

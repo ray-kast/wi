@@ -399,10 +399,21 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         true
     }
 
-    fn prompt_node_kind<C: ContinueOnce<Self, Option<Self::NodeKind>>>(
+    fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
-        then: Yielded<Self, C>,
+        then: Yielded<Self, Y, C>,
     ) {
         then.resume_now(self, Some(N::TMP_EXAMPLE));
+    }
+
+    fn create_node(
+        &mut self,
+        mut kind: Self::NodeKind,
+        position: Self::Point,
+        ctx: &mut Self::Context<'_>,
+    ) {
+        *kind.position_mut().unwrap_or_else(|| todo!()) = position;
+        make_mut!(self.graph).add_node(kind.into());
+        ctx.request_render();
     }
 }

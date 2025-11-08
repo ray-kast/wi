@@ -75,6 +75,7 @@ pub(super) struct GrammarDef {
 
 pub(super) struct GrammarNode {
     pub label: Option<Label>,
+    #[expect(unused)]
     pub leading_vert: Option<Token![|]>,
     pub tok_idents: Punctuated<Ident, Token![|]>,
     pub kind: NodeKind,

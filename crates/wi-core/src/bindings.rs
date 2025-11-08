@@ -1,75 +1,55 @@
 use keyboard_types::{Modifiers, NamedKey};
-use shibari::{static_acceptors, AcceptState};
+use shibari::{static_acceptors, AcceptorOutput};
 use Key::{Char as C, Named as N};
 use NamedKey as K;
 
 use crate::{
-    actions::prelude::*,
+    actions::{prelude::*, Motion, SimpleAction},
     mode::ModeKind,
     modifiers::{M_NONE, M_SHIFT, M_TCTL},
     operators::prelude::*,
     Step,
 };
 
-macro_rules! out {
-    ($(#$attr:tt)* $vis:vis enum $ty:ident {
-        $inner:ident
-        $(, $($body:tt)*)?
-    }) => {
-        $(#$attr)*
-        $vis enum $ty {
-            Trap,
-            Advance,
-            $inner($inner),
-            $($($body)*)?
-        }
-
-        impl<T: Into<$inner>> From<T> for $ty {
-            #[inline]
-            fn from(value: T) -> Self { Self::$inner(value.into()) }
-        }
-
-        impl AcceptState for $ty {
-            const TRAP: Self = $ty::Trap;
-            const ADVANCE: Self = $ty::Advance;
-        }
-    };
-}
-
-pub enum AddOpAction {
+pub enum CreateOpAction {
     Accept,
 }
 
-out! {
-    pub enum AddOut {
-        AddOpAction,
-    }
+#[derive(AcceptorOutput)]
+pub enum CreateOut {
+    #[shibari(trap)]
+    Trap,
+    #[shibari(advance)]
+    Advance,
+    #[shibari(from)]
+    CreateOpAction(CreateOpAction),
 }
 
-out! {
-    #[derive(Debug)]
-    pub enum NormalOut {
-        Action,
-        Operator(Operator),
-    }
+#[derive(Debug, AcceptorOutput)]
+pub enum ActionOut {
+    #[shibari(trap)]
+    Trap,
+    #[shibari(advance)]
+    Advance,
+    #[shibari(from)]
+    Action(SimpleAction),
+    Operator(Operator),
 }
 
 #[inline]
-fn dispatch_op<T: Into<Operator>>(op: T) -> NormalOut { NormalOut::Operator(op.into()) }
+fn dispatch_op<T: Into<Operator>>(op: T) -> ActionOut { ActionOut::Operator(op.into()) }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, AcceptorOutput)]
 pub enum MotionOut {
+    #[shibari(trap)]
     Trap,
+    #[shibari(advance)]
     Advance,
+    #[shibari(from)]
     Motion(Motion),
 }
 
-impl<T: Into<Motion>> From<T> for MotionOut {
-    #[inline]
-    fn from(value: T) -> Self { Self::Motion(value.into()) }
-}
-
-impl From<MotionOut> for NormalOut {
+impl From<MotionOut> for ActionOut {
     #[inline]
     fn from(value: MotionOut) -> Self {
         match value {
@@ -78,11 +58,6 @@ impl From<MotionOut> for NormalOut {
             MotionOut::Motion(m) => Self::Action(m.into()),
         }
     }
-}
-
-impl AcceptState for MotionOut {
-    const ADVANCE: Self = Self::Advance;
-    const TRAP: Self = Self::Trap;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -98,8 +73,7 @@ static_acceptors! {
     token Home = N(K::Home, M_NONE);
     token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE);
 
-    token AddOp = C('a', M_NONE);
-    token ConnectOp = C('c', M_NONE) => "c";
+    token CreateOp = C('c', M_NONE);
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
@@ -116,13 +90,12 @@ static_acceptors! {
     token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
     token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
 
-    pub grammar AddOp: AddOut {
-        AddOp | Accept => yield AddOpAction::Accept;
+    pub grammar CreateOp: CreateOut {
+        CreateOp | Accept => yield CreateOpAction::Accept;
     }
 
-    pub grammar Normal: NormalOut {
-        AddOp => yield dispatch_op(Add::default());
-        ConnectOp {}
+    pub grammar Normal: ActionOut {
+        CreateOp => yield dispatch_op(Create::default());
 
         DeleteOp {
             DeleteOp => yield DeleteAtCursor;
@@ -143,7 +116,7 @@ static_acceptors! {
         Opposite => yield GoToOpposite;
     }
 
-    grammar Global: NormalOut {
+    grammar Global: ActionOut {
         'count: DigitNonzero {
             yield PushCount(c);
 

@@ -22,8 +22,8 @@ impl fmt::Debug for Output {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Expr(e) => write!(f, "{}", e.to_token_stream()),
-            Self::Trap => write!(f, "<Self::Output as AcceptState>::TRAP"),
-            Self::Advance => write!(f, "<Self::Output as AcceptState>::ADVANCE"),
+            Self::Trap => write!(f, "<Self::Output as AcceptorOutput>::TRAP"),
+            Self::Advance => write!(f, "<Self::Output as AcceptorOutput>::ADVANCE"),
         }
     }
 }
@@ -333,7 +333,7 @@ fn build_tree<'b>(
 ) -> &'b mut TreeBuilder {
     for parse::GrammarNode {
         label,
-        leading_vert,
+        leading_vert: _,
         tok_idents,
         kind,
     } in nodes
