@@ -26,12 +26,15 @@ impl OperatorInner for CreateInner {
         Self::Init(CreateOpAccept::default())
     }
 
-    fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>) -> OperatorResult {
+    fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, mut cx: OperatorCx<W>) {
         match self {
             Self::Init(a) => {
                 let action = match a.accept(key) {
-                    CreateOut::Trap => return OperatorResult::Abort,
-                    CreateOut::Advance => return OperatorResult::Continue,
+                    CreateOut::Trap => {
+                        cx.abort();
+                        return;
+                    },
+                    CreateOut::Advance => return,
                     CreateOut::CreateOpAction(a) => a,
                 };
 
@@ -43,11 +46,10 @@ impl OperatorInner for CreateInner {
                         let (widget, then) = cx.into_yielded(CreateWithType(shared), self);
 
                         widget.prompt_node_kind(then);
-                        OperatorResult::Continue
                     },
                 }
             },
-            Self::Yielded(_) => OperatorResult::Continue,
+            Self::Yielded(_) => (),
         }
     }
 }

@@ -167,7 +167,7 @@ mod imp {
         #[inline]
         fn state(&self) -> Option<OperatorState> { None }
 
-        fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>) -> OperatorResult;
+        fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
     #[impl_enum]
@@ -210,8 +210,7 @@ mod imp {
 
 pub(crate) use imp::EditorOperator;
 pub use imp::{
-    CurrentOperator, OpDispatch, OpYielded, Operator, OperatorCx, OperatorInner, OperatorResult,
-    OperatorState,
+    CurrentOperator, OpYielded, Operator, OperatorCx, OperatorInner, OperatorResult, OperatorState,
 };
 
 macro_rules! operator {
@@ -244,11 +243,7 @@ macro_rules! operator {
             ) {
                 let Some(ref mut inner) = self.0 else { unreachable!() };
 
-                let ret = <$inner as crate::operators::OperatorInner>::step(inner, key, cx);
-
-                if !matches!(ret, crate::operators::OperatorResult::Continue) {
-                    self.0 = None;
-                }
+                <$inner as crate::operators::OperatorInner>::step(inner, key, cx);
             }
         }
     };
