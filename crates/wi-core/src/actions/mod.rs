@@ -18,7 +18,7 @@ pub mod all {
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
 
-    pub(crate) use super::{all::*, ActionCx, EditorAction, EditorMotion};
+    pub(crate) use super::{all::*, ActionCx, EditorAction, EditorMotion, Kind};
     pub use crate::{
         cursor::{Selection, SelectionExt},
         GraphWidget,
@@ -268,7 +268,6 @@ mod basic {
     pub struct PushCount(pub char);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(ActionKind)]
     pub struct SetMode(#[kind(ModeKind::Normal => ActionKind::ModeNormal)] pub ModeKind);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]

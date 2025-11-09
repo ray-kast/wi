@@ -10,7 +10,6 @@ pub(super) mod actions {
     };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(MotionKind)]
     pub struct StepCursor(
         #[kind(
             Step::Left => MotionKind::StepLeft,

@@ -1,3 +1,5 @@
+use wi_macros::Kind;
+
 pub use super::prelude::*;
 use crate::GraphWidgetCell;
 
@@ -5,6 +7,7 @@ pub(super) mod operators {
     use crate::operators::operator;
 
     operator!(
+        #[uninit_kind = Create]
         #[derive(Debug, Default, PartialEq)]
         pub struct Create(pub(super) super::CreateInner);
     );
@@ -13,20 +16,17 @@ pub(super) mod operators {
 #[derive(Debug, PartialEq)]
 struct Shared;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Kind)]
+#[kind(const OperatorKind::Create)]
 enum CreateInner {
     Init(CreateOpAccept),
     Yielded(Arc<Shared>),
 }
 
-impl OperatorInner for CreateInner {
-    const DEFAULT_STATE: OperatorState = OperatorState::Create;
+impl<W: GraphWidget + ?Sized> OperatorInner<W> for CreateInner {
+    fn new(cx: OperatorCx<W>) -> Self { Self::Init(CreateOpAccept::default()) }
 
-    fn new<W: GraphWidget + ?Sized>(cx: OperatorCx<W>) -> Self {
-        Self::Init(CreateOpAccept::default())
-    }
-
-    fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, mut cx: OperatorCx<W>) {
+    fn step(&mut self, key: Key, mut cx: OperatorCx<W>) {
         match self {
             Self::Init(a) => {
                 let action = match a.accept(key) {

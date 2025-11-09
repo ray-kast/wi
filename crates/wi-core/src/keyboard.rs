@@ -136,7 +136,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
                 match res {
                     OperatorResult::Continue => {
-                        debug!(operator = operator.state().name(), "Pushing operator");
+                        debug!(operator = operator.kind().name(), "Pushing operator");
                         self.current_operator
                             .push(operator, &mut self.inner.stashed_operators);
 
@@ -144,7 +144,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                     },
                     OperatorResult::Finish => {
                         debug!(
-                            operator = operator.state().name(),
+                            operator = operator.kind().name(),
                             "Operator finished on init"
                         );
 
@@ -152,7 +152,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                     },
                     OperatorResult::Abort => {
                         debug!(
-                            operator = operator.state().name(),
+                            operator = operator.kind().name(),
                             "Operator aborted on init"
                         );
 

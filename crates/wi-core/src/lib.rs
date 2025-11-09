@@ -10,7 +10,7 @@ pub use crate::{
     continuation::{ContinueCx, ContinueOnce, Yielded},
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     mode::ModeKind,
-    operators::OperatorState,
+    operators::OperatorKind,
     status::Status,
 };
 

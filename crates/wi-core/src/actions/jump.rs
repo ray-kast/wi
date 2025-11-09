@@ -4,7 +4,6 @@ pub(super) mod actions {
     use crate::{actions::MotionKind, Side};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(MotionKind)]
     pub struct JumpToPort(
         #[kind(
             Some(Side::In) => MotionKind::JumpToInput,

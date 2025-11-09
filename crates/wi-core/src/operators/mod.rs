@@ -9,7 +9,7 @@ pub mod prelude {
 
     pub use shibari::Acceptor;
 
-    pub use super::{all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorState};
+    pub use super::{all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind};
     pub use crate::{
         actions::prelude::*,
         bindings::*,
@@ -18,7 +18,7 @@ pub mod prelude {
 }
 
 mod imp {
-    use std::mem;
+    use std::{hash::Hash, mem};
 
     use wi_macros::impl_enum;
 
@@ -149,23 +149,16 @@ mod imp {
         Abort,
     }
 
-    pub(crate) trait EditorOperator {
-        fn state(&self) -> OperatorState;
+    pub(crate) trait EditorOperator<W: GraphWidget + ?Sized>: Kind<OperatorKind> {
+        fn init(&mut self, cx: OperatorCx<W>);
 
-        fn init<W: GraphWidget + ?Sized>(&mut self, cx: OperatorCx<W>);
-
-        fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>);
+        fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
-    pub trait OperatorInner: Sized {
-        const DEFAULT_STATE: OperatorState;
+    pub trait OperatorInner<W: GraphWidget + ?Sized>: Sized {
+        fn new(cx: OperatorCx<W>) -> Self;
 
-        fn new<W: GraphWidget + ?Sized>(cx: OperatorCx<W>) -> Self;
-
-        #[inline]
-        fn state(&self) -> Option<OperatorState> { None }
-
-        fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>);
+        fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
     #[impl_enum]
@@ -175,28 +168,29 @@ mod imp {
     }
 
     #[impl_enum]
-    impl EditorOperator for Operator {
-        fn state(&self) -> OperatorState { dispatch!(self) }
+    impl Kind<OperatorKind> for Operator {
+        fn kind(&self) -> OperatorKind { dispatch!(self) }
+    }
 
-        fn init<W: GraphWidget + ?Sized>(&mut self, cx: OperatorCx<W>) { dispatch!(self, cx) }
+    #[impl_enum]
+    impl<W: GraphWidget + ?Sized> EditorOperator<W> for Operator {
+        fn init(&mut self, cx: OperatorCx<W>) { dispatch!(self, cx) }
 
-        fn step<W: GraphWidget + ?Sized>(&mut self, key: Key, cx: OperatorCx<W>) {
-            dispatch!(self, key, cx)
-        }
+        fn step(&mut self, key: Key, cx: OperatorCx<W>) { dispatch!(self, key, cx) }
     }
 
     impl Operator {
         #[inline]
         #[must_use]
-        pub fn state(&self) -> OperatorState { EditorOperator::state(self) }
+        pub fn kind(&self) -> OperatorKind { Kind::kind(self) }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum OperatorState {
+    pub enum OperatorKind {
         Create,
     }
 
-    impl OperatorState {
+    impl OperatorKind {
         #[must_use]
         pub const fn name(self) -> &'static str {
             match self {
@@ -208,40 +202,43 @@ mod imp {
 
 pub(crate) use imp::EditorOperator;
 pub use imp::{
-    CurrentOperator, OpYielded, Operator, OperatorCx, OperatorInner, OperatorResult, OperatorState,
+    CurrentOperator, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind, OperatorResult,
 };
 
 macro_rules! operator {
-    ($(#$attr:tt)* $vis:vis struct $op:ident($inner_vis:vis $inner:ty);) => {
+    (
+        #[uninit_kind = $uninit:ident]
+        $(#$attr:tt)*
+        $vis:vis struct $op:ident($inner_vis:vis $inner:ty);
+    ) => {
         $(#$attr)*
         $vis struct $op($inner_vis Option<$inner>);
 
-        impl crate::operators::EditorOperator for $op {
-            fn state(&self) -> crate::operators::OperatorState {
-                self.0.as_ref().and_then(
-                    <$inner as crate::operators::OperatorInner>::state
-                ).unwrap_or_else(|| {
-                    <$inner as crate::operators::OperatorInner>::DEFAULT_STATE.into()
-                })
+        impl crate::actions::Kind<crate::operators::OperatorKind> for $op {
+            fn kind(&self) -> crate::operators::OperatorKind {
+                if let Some(ref inner) = self.0 {
+                    <$inner as crate::actions::Kind<crate::operators::OperatorKind>>::kind(
+                        inner
+                    )
+                } else {
+                    #[allow(unused_imports)]
+                    use crate::operators::{OperatorKind, OperatorKind::*};
+                    $uninit
+                }
             }
+        }
 
-            fn init<W: crate::GraphWidget + ?Sized>(
-                &mut self,
-                mut cx: crate::operators::OperatorCx<W>,
-            ) {
+        impl<W: crate::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
+            fn init(&mut self, mut cx: crate::operators::OperatorCx<W>) {
                 if self.0.is_some() { cx.abort() }
 
-                self.0 = Some(<$inner as crate::operators::OperatorInner>::new(cx));
+                self.0 = Some(<$inner as crate::operators::OperatorInner<W>>::new(cx));
             }
 
-            fn step<W: crate::GraphWidget + ?Sized>(
-                &mut self,
-                key: crate::bindings::Key,
-                cx: crate::operators::OperatorCx<W>,
-            ) {
+            fn step(&mut self, key: crate::bindings::Key, cx: crate::operators::OperatorCx<W>) {
                 let Some(ref mut inner) = self.0 else { unreachable!() };
 
-                <$inner as crate::operators::OperatorInner>::step(inner, key, cx);
+                <$inner as crate::operators::OperatorInner<W>>::step(inner, key, cx);
             }
         }
     };
