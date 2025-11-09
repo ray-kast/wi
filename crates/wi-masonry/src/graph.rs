@@ -6,11 +6,14 @@ use petgraph::{prelude::*, visit::IntoEdgeReferences};
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
 pub trait Node: Clone {
+    type Prototype;
     type Icon;
     type Widget;
     type PortShape;
 
-    const TMP_EXAMPLE: Self;
+    const PROTOTYPE: Self::Prototype;
+
+    fn create(proto: Self::Prototype, position: Point) -> Self;
 
     fn in_arity(&self) -> u16;
     fn out_arity(&self) -> u16;

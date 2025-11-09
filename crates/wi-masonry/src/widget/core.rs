@@ -165,7 +165,7 @@ impl<N: Node> GraphWidget for EditorCore<N> {
     type Cell = Cell<N>;
     type Context<'a> = EventCtx<'a>;
     type NodeId = NodeIndex;
-    type NodeKind = N;
+    type NodeKind = N::Prototype;
     type Point = Point;
     type PortId = u16;
 
@@ -403,17 +403,16 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         &mut self,
         then: Yielded<Self, Y, C>,
     ) {
-        then.resume_now(self, Some(N::TMP_EXAMPLE));
+        then.resume_now(self, Some(N::PROTOTYPE));
     }
 
     fn create_node(
         &mut self,
-        mut kind: Self::NodeKind,
+        kind: Self::NodeKind,
         position: Self::Point,
         ctx: &mut Self::Context<'_>,
     ) {
-        *kind.position_mut().unwrap_or_else(|| todo!()) = position;
-        make_mut!(self.graph).add_node(kind.into());
+        make_mut!(self.graph).add_node(N::create(kind, position).into());
         ctx.request_render();
     }
 

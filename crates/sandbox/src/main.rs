@@ -21,15 +21,20 @@ struct Node {
 impl wi_xilem::graph::Node for Node {
     type Icon = ();
     type PortShape = ();
+    type Prototype = ();
     type Widget = ();
 
-    const TMP_EXAMPLE: Self = Node {
-        name: "tmp",
-        style: NodeStyle::Medium,
-        pos: Point { x: 0.0, y: 0.0 },
-        inputs: vec![],
-        outputs: vec![],
-    };
+    const PROTOTYPE: Self::Prototype = ();
+
+    fn create((): Self::Prototype, position: Point) -> Self {
+        Self {
+            name: "tmp",
+            style: NodeStyle::Large,
+            pos: position,
+            inputs: vec!["in 1", "in 2"],
+            outputs: vec!["out 1", "out 2"],
+        }
+    }
 
     #[inline]
     fn in_arity(&self) -> u16 {
