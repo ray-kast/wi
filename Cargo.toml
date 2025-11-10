@@ -9,18 +9,18 @@ repository = "https://github.com/ray-kast/wi"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
-accesskit = "0.19"
+accesskit = "0.21.1"
 hashbrown = "0.16.0"
 indexmap = "2.12.0"
-keyboard-types = "0.8.1"
-masonry = "0.3.0"
+keyboard-types = "0.8.3"
+masonry = "0.4.0"
 petgraph = "0.8.3"
-proc-macro2 = "1.0.101"
-quote = "1.0.41"
+proc-macro2 = "1.0.103"
+quote = "1.0.42"
 smallvec = { version = "1.15.1", features = ["const_new"] }
-syn = { version = "2.0.107", features = ["extra-traits", "fold", "full"] }
+syn = { version = "2.0.109", features = ["extra-traits", "fold", "full"] }
 tracing = "0.1.41"
-xilem = "0.3.0"
+xilem = "0.4.0"
 
 shibari = { version = "0.0.0", path = "crates/shibari", features = ["proc-macros"] }
 shibari-grammar = { version = "0.0.0", path = "crates/shibari-grammar" }

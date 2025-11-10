@@ -3,8 +3,8 @@ use std::sync::Arc;
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        render_text, EventCtx, Ime, KeyboardEvent, PaintCtx, PointerButton, PointerEvent, StyleSet,
-        TextEvent, Update, Widget,
+        render_text, EventCtx, Ime, KeyboardEvent, NoAction, PaintCtx, PointerButton,
+        PointerButtonEvent, PointerEvent, PointerScrollEvent, StyleSet, TextEvent, Update, Widget,
     },
     kurbo::{Affine, Circle, Point, Rect, Size, Stroke, Vec2},
     parley::{Alignment, AlignmentOptions, GenericFamily, Layout},
@@ -168,10 +168,10 @@ impl<N: Node> GraphEditor<N> {
                     lcx.ranged_builder(fcx, &s, 1.0, true),
                     name_rect.width() as f32,
                     match (node.style(), node.in_arity(), node.out_arity()) {
-                        (NodeStyle::Small, 0, 0) => Alignment::Middle,
+                        (NodeStyle::Small, 0, 0) => Alignment::Center,
                         (NodeStyle::Small, _, 0) => Alignment::Left,
                         (NodeStyle::Small, 0, _) => Alignment::Right,
-                        _ => Alignment::Middle,
+                        _ => Alignment::Center,
                     },
                 );
 
@@ -309,6 +309,8 @@ impl<N: Node> GraphEditor<N> {
 }
 
 impl<N: Node + 'static> Widget for GraphEditor<N> {
+    type Action = NoAction;
+
     fn accepts_focus(&self) -> bool { true }
 
     fn accepts_pointer_interaction(&self) -> bool { true }
@@ -533,11 +535,11 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
         ctx.request_focus();
 
         match event {
-            PointerEvent::Down {
+            PointerEvent::Down(PointerButtonEvent {
                 button: Some(PointerButton::Auxiliary),
                 pointer,
                 state,
-            } => {
+            }) => {
                 if state.buttons == PointerButton::Auxiliary.into()
                     && state.modifiers.difference(M_CTRL) == M_NONE
                 {
@@ -547,11 +549,11 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                     self.core.pan.cancel_drag(Some(pointer), ctx);
                 }
             },
-            PointerEvent::Down {
+            PointerEvent::Down(PointerButtonEvent {
                 button: Some(PointerButton::Primary),
                 pointer,
                 state,
-            } => {
+            }) => {
                 if state.buttons == PointerButton::Primary.into() && state.modifiers == M_NONE {
                     self.core.begin_node_drag(*pointer, state, ctx);
                     ctx.capture_pointer();
@@ -565,31 +567,31 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                     .update_drag(&u.pointer, &u.current, &self.core.zoom, ctx);
                 self.core.update_node_drag(&u.pointer, &u.current, ctx);
             },
-            PointerEvent::Up {
+            PointerEvent::Up(PointerButtonEvent {
                 button: Some(PointerButton::Auxiliary),
                 pointer,
                 state,
-            } => {
+            }) => {
                 self.core
                     .pan
                     .complete_drag(pointer, state, &self.core.zoom, ctx);
             },
-            PointerEvent::Up {
+            PointerEvent::Up(PointerButtonEvent {
                 button: Some(PointerButton::Primary),
                 pointer,
                 state,
-            } => {
+            }) => {
                 self.core.complete_node_drag(pointer, state, ctx);
             },
             PointerEvent::Cancel(i) => {
                 self.core.pan.cancel_drag(Some(i), ctx);
                 self.core.cancel_node_drag(Some(i), ctx);
             },
-            PointerEvent::Scroll {
+            PointerEvent::Scroll(PointerScrollEvent {
                 pointer: _,
                 delta,
                 state,
-            } => match state.modifiers {
+            }) => match state.modifiers {
                 M_NONE => self.core.pan.scroll(delta, false, &self.core.zoom, ctx),
                 M_CTRL => self.core.zoom.scroll(delta, ctx),
                 M_SHIFT => self.core.pan.scroll(delta, true, &self.core.zoom, ctx),

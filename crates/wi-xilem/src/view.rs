@@ -24,17 +24,18 @@ impl<S, A, N: Node + 'static> View<S, A, ViewCtx> for GraphEditor<N> {
     type Element = Pod<widget::GraphEditor<N>>;
     type ViewState = ();
 
-    fn build(&self, ctx: &mut ViewCtx) -> (Self::Element, Self::ViewState) {
+    fn build(&self, ctx: &mut ViewCtx, _app_state: &mut S) -> (Self::Element, Self::ViewState) {
         let graph = widget::GraphEditor::new(Arc::clone(&self.0));
-        (ctx.with_action_widget(|c| c.new_pod(graph)), ())
+        (ctx.with_action_widget(|c| c.create_pod(graph)), ())
     }
 
     fn rebuild(
         &self,
         _prev: &Self,
-        (): &mut Self::ViewState,
+        _view_state: &mut Self::ViewState,
         _ctx: &mut ViewCtx,
         _element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut S,
     ) {
         todo!()
     }
@@ -50,9 +51,9 @@ impl<S, A, N: Node + 'static> View<S, A, ViewCtx> for GraphEditor<N> {
 
     fn message(
         &self,
-        (): &mut Self::ViewState,
-        _id_path: &[xilem::core::ViewId],
-        _message: xilem::core::DynMessage,
+        _view_state: &mut Self::ViewState,
+        _message: &mut xilem::core::MessageContext,
+        _element: xilem::core::Mut<'_, Self::Element>,
         _app_state: &mut S,
     ) -> xilem::core::MessageResult<A> {
         todo!()

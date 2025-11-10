@@ -1,8 +1,9 @@
 use std::{borrow::Cow, fmt::Write};
 
 use masonry::{
-    core::{StyleProperty, WidgetMut, WidgetPod},
+    core::{NewWidget, Properties, StyleProperty, WidgetMut, WidgetPod},
     peniko::color::{AlphaColor, Srgb},
+    properties::{types::Length, ContentColor},
     theme::TEXT_COLOR,
     widgets::{Flex, Label, SizedBox},
 };
@@ -63,24 +64,24 @@ impl RenderedStatus {
 
         WidgetPod::new(
             Flex::row()
-                .gap(8.0)
-                .with_spacer(4.0)
-                .with_child(
-                    Label::new(mode)
-                        .with_style(StyleProperty::FontSize(18.0))
-                        .with_brush(mode_brush),
-                )
+                .with_gap(Length::px(8.0))
+                .with_spacer(Length::px(4.0))
+                .with_child(NewWidget::new_with_props(
+                    Label::new(mode).with_style(StyleProperty::FontSize(18.0)),
+                    Properties::one(ContentColor::new(mode_brush)),
+                ))
                 .with_flex_spacer(1.0)
-                .with_child(
-                    Label::new(last_action)
-                        .with_style(StyleProperty::FontSize(18.0))
-                        .with_brush(TEXT_COLOR.with_alpha(0.6)),
-                )
-                .with_child(
-                    SizedBox::new(Label::new(chord).with_style(StyleProperty::FontSize(18.0)))
-                        .width(50.0),
-                )
-                .with_spacer(4.0),
+                .with_child(NewWidget::new_with_props(
+                    Label::new(last_action).with_style(StyleProperty::FontSize(18.0)),
+                    Properties::one(ContentColor::new(TEXT_COLOR.with_alpha(0.6))),
+                ))
+                .with_child(NewWidget::new(
+                    SizedBox::new(NewWidget::new(
+                        Label::new(chord).with_style(StyleProperty::FontSize(18.0)),
+                    ))
+                    .width(Length::px(50.0)),
+                ))
+                .with_spacer(Length::px(4.0)),
         )
     }
 
@@ -96,7 +97,7 @@ impl RenderedStatus {
             let mut lbl = Flex::child_mut(&mut bar, 1).unwrap();
             let mut lbl = lbl.downcast();
             Label::set_text(&mut lbl, mode);
-            Label::set_brush(&mut lbl, mode_brush);
+            lbl.insert_prop(ContentColor::new(mode_brush));
         }
 
         {

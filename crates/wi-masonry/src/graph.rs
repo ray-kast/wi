@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use masonry::kurbo::Point;
+use masonry::{core::NoAction, kurbo::Point};
 use petgraph::{prelude::*, visit::IntoEdgeReferences};
 
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
@@ -83,6 +83,8 @@ pub enum NodeLabel<'n, I, W> {
 pub enum NoWidget {}
 
 impl masonry::core::Widget for NoWidget {
+    type Action = NoAction;
+
     #[inline]
     fn register_children(&mut self, _: &mut masonry::core::RegisterCtx) { match *self {} }
 

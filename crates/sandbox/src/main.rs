@@ -4,9 +4,9 @@ use wi_xilem::{
     view::graph_editor,
 };
 use xilem::{
-    view::{flex, FlexExt},
-    winit::{dpi::LogicalSize, window::Window},
-    EventLoop, WidgetView, Xilem,
+    view::{flex_col, FlexExt},
+    winit::dpi::LogicalSize,
+    EventLoop, WidgetView, WindowOptions, Xilem,
 };
 
 #[derive(Debug, Clone)]
@@ -136,16 +136,17 @@ fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
         to_port: 1,
     });
 
-    flex((graph_editor(Checked::new(graph.into())).flex(1.0),))
+    flex_col((graph_editor(Checked::new(graph.into())).flex(1.0),))
 }
 
 fn main() {
-    let app = Xilem::new(State::default(), app_logic);
-    let attrs = Window::default_attributes()
-        .with_title("wi")
-        .with_min_inner_size(LogicalSize::new(525.0, 350.0))
-        .with_inner_size(LogicalSize::new(810.0, 540.0))
-        .with_resizable(true);
-    app.run_windowed_in(EventLoop::with_user_event(), attrs)
-        .unwrap();
+    let app = Xilem::new_simple(
+        State::default(),
+        app_logic,
+        WindowOptions::new("wi")
+            .with_min_inner_size(LogicalSize::new(525.0, 350.0))
+            .with_initial_inner_size(LogicalSize::new(810.0, 540.0))
+            .with_resizable(true),
+    );
+    app.run_in(EventLoop::with_user_event()).unwrap();
 }

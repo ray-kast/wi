@@ -6,7 +6,7 @@ use NamedKey as K;
 use crate::{
     actions::{prelude::*, Motion, SimpleAction},
     mode::ModeKind,
-    modifiers::{M_NONE, M_SHIFT, M_TCTL},
+    modifiers::{M_CTRL, M_NONE, M_SHIFT, M_TCTL},
     operators::prelude::*,
     Step,
 };
@@ -79,6 +79,7 @@ static_acceptors! {
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
     token Quit = C('q', M_NONE);
+    token CtrlQuit = C('q', M_CTRL);
 
     token Debug = C('d', M_NONE);
 
@@ -139,5 +140,6 @@ static_acceptors! {
         }
 
         Home => yield ViewCursor;
+        CtrlQuit => yield Quit;
     }
 }
