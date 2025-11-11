@@ -66,14 +66,14 @@ mod imp {
     pub type OpDispatch<'a, 'c> = Dispatch<&'c mut OperatorResult, &'a mut CurrentOperator>;
     pub type OpYielded<'a, 'c, Y> = (OpDispatch<'a, 'c>, Y);
 
-    pub struct OperatorCx<'a, 'c, 'w, W: GraphWidget + ?Sized> {
+    pub struct OperatorCx<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized> {
         widget: &'a mut W,
         driver: &'a mut DriverInner<W>,
         inner: &'a mut W::Context<'w>,
         dispatch: OpDispatch<'a, 'c>,
     }
 
-    impl<'a, 'c, 'w, W: GraphWidget + ?Sized> OperatorCx<'a, 'c, 'w, W> {
+    impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized> OperatorCx<'a, 'c, 'w, W> {
         pub const fn new(
             widget: &'a mut W,
             driver: &'a mut DriverInner<W>,
@@ -149,13 +149,15 @@ mod imp {
         Abort,
     }
 
-    pub(crate) trait EditorOperator<W: GraphWidget + ?Sized>: Kind<OperatorKind> {
+    pub(crate) trait EditorOperator<W: GraphWidgetTypes + ?Sized>:
+        Kind<OperatorKind>
+    {
         fn init(&mut self, cx: OperatorCx<W>);
 
         fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
-    pub trait OperatorInner<W: GraphWidget + ?Sized>: Sized {
+    pub trait OperatorInner<W: GraphWidgetTypes + ?Sized>: Sized {
         fn new(cx: OperatorCx<W>) -> Self;
 
         fn step(&mut self, key: Key, cx: OperatorCx<W>);
@@ -228,7 +230,7 @@ macro_rules! operator {
             }
         }
 
-        impl<W: crate::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
+        impl<W: crate::traits::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
             fn init(&mut self, mut cx: crate::operators::OperatorCx<W>) {
                 if self.0.is_some() { cx.abort() }
 

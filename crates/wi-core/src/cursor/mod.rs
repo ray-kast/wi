@@ -1,4 +1,4 @@
-use crate::{GraphWidget, Port, Side, SidedPort};
+use crate::{traits::GraphWidgetTypes, Port, Side, SidedPort};
 
 pub mod euclidean_cell;
 mod selection;
@@ -61,7 +61,8 @@ impl<N, P> EdgeCursor<N, P> {
     }
 }
 
-pub type WEdgeCursor<W> = EdgeCursor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
+pub type WEdgeCursor<W> =
+    EdgeCursor<<W as GraphWidgetTypes>::NodeId, <W as GraphWidgetTypes>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cursor<NodeId, PortId, Point> {
@@ -71,5 +72,8 @@ pub enum Cursor<NodeId, PortId, Point> {
     FixedPoint(Point),
 }
 
-pub type WCursor<W> =
-    Cursor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId, <W as GraphWidget>::Point>;
+pub type WCursor<W> = Cursor<
+    <W as GraphWidgetTypes>::NodeId,
+    <W as GraphWidgetTypes>::PortId,
+    <W as GraphWidgetTypes>::Point,
+>;

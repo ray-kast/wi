@@ -8,7 +8,7 @@ pub(super) mod actions {
     pub struct Quit;
 }
 
-impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::Quit {
+impl<W: UiOps + ?Sized> EditorAction<W> for actions::Quit {
     fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 

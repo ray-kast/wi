@@ -11,8 +11,8 @@ use petgraph::{
     visit::{IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
-    ContinueOnce, Cursor, CursorUpdate, EdgeCursor, GraphWidget, Port, Side, SidedPort, Status,
-    Step, WCursor, WEdgeCursor, WPort, WSidedPort, Yielded,
+    prelude::*, Cursor, CursorUpdate, EdgeCursor, Port, Side, SidedPort, Status, Step, WCursor,
+    WEdgeCursor, WPort, WSidedPort, Yielded,
 };
 
 use super::{
@@ -185,14 +185,16 @@ impl<N: Node> EditorCore<N> {
     }
 }
 
-impl<N: Node> GraphWidget for EditorCore<N> {
+impl<N: Node> GraphWidgetTypes for EditorCore<N> {
     type Cell = Cell<N>;
     type Context<'a> = EventCtx<'a>;
     type NodeId = NodeIndex;
     type NodeKind = N::Prototype;
     type Point = Point;
     type PortId = u16;
+}
 
+impl<N: Node> CursorOps for EditorCore<N> {
     fn default_cursor(&self) -> WCursor<Self> {
         self.graph
             .node_references()
@@ -270,7 +272,7 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         cell: &Self::Cell,
         pred: F,
     ) -> Option<WEdgeCursor<Self>> {
-        fn edge_cursor<W: GraphWidget>(from: WPort<W>, to: WPort<W>) -> WEdgeCursor<W> {
+        fn edge_cursor<W: GraphWidgetTypes>(from: WPort<W>, to: WPort<W>) -> WEdgeCursor<W> {
             EdgeCursor {
                 from,
                 to,
@@ -396,22 +398,9 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         }
         cx.request_render();
     }
+}
 
-    fn update_status(&mut self, status: Status, cx: &mut EventCtx) {
-        let rendered = RenderedStatus::new(status);
-        cx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
-    }
-
-    #[inline]
-    fn delete_node(&mut self, &node: &Self::NodeId, cx: &mut EventCtx) -> bool {
-        let Some(n) = make_mut!(self.graph).remove_node(node) else {
-            return false;
-        };
-
-        self.submit_action(GraphActionKind::NodeDeleted(n), cx);
-        true
-    }
-
+impl<N: Node> EdgeOps for EditorCore<N> {
     fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>, cx: &mut EventCtx) -> bool {
         let Some(e) = self
             .graph
@@ -428,7 +417,9 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         self.submit_action(GraphActionKind::EdgeDeleted(from.0, to.0, edge), cx);
         true
     }
+}
 
+impl<N: Node> NodeOps for EditorCore<N> {
     fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
         then: Yielded<Self, Y, C>,
@@ -441,6 +432,22 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         make_mut!(self.graph).add_node(N::create(kind, position).into());
         self.submit_action(GraphActionKind::NodeCreated, cx);
         cx.request_render();
+    }
+
+    fn delete_node(&mut self, &node: &Self::NodeId, cx: &mut EventCtx) -> bool {
+        let Some(n) = make_mut!(self.graph).remove_node(node) else {
+            return false;
+        };
+
+        self.submit_action(GraphActionKind::NodeDeleted(n), cx);
+        true
+    }
+}
+
+impl<N: Node> UiOps for EditorCore<N> {
+    fn update_status(&mut self, status: Status, cx: &mut EventCtx) {
+        let rendered = RenderedStatus::new(status);
+        cx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
     }
 
     fn quit(&mut self, cx: &mut EventCtx) { cx.exit(); }

@@ -7,7 +7,7 @@ use crate::{
     bindings::{ActionOut, Key},
     continuation::Dispatch,
     operators::{EditorOperator, OperatorCx, OperatorResult},
-    GraphWidget, GraphWidgetDriver,
+    traits::GraphWidget, GraphWidgetDriver,
 };
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {

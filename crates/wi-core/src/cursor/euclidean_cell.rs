@@ -2,11 +2,11 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use num_traits::Num;
 
-use crate::{AlignCell, Cursor, GraphWidget, GraphWidgetCell, Port, Side, SidedPort, WCursor};
+use crate::{AlignCell, Cursor, GraphWidgetCell, traits::GraphWidgetTypes, Port, Side, SidedPort, WCursor};
 
 /// Implements several functions that enable the use of a euclidean [Cell]
 pub trait GraphEuclidean:
-    GraphWidget<
+    GraphWidgetTypes<
     NodeId: PartialEq,
     PortId: PartialEq,
     Point: Add<Self::Vector, Output = Self::Point> + Sub<Self::Vector, Output = Self::Point>,
@@ -40,7 +40,7 @@ pub enum Anchor<N, P> {
     Edge(Port<N, P>, Port<N, P>),
 }
 
-pub type WAnchor<W> = Anchor<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
+pub type WAnchor<W> = Anchor<<W as GraphWidgetTypes>::NodeId, <W as GraphWidgetTypes>::PortId>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum State {
@@ -62,8 +62,11 @@ pub struct Cell<NodeId, PortId, Vector> {
     pub offset: Vector,
 }
 
-pub type WCell<W> =
-    Cell<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId, <W as GraphEuclidean>::Vector>;
+pub type WCell<W> = Cell<
+    <W as GraphWidgetTypes>::NodeId,
+    <W as GraphWidgetTypes>::PortId,
+    <W as GraphEuclidean>::Vector,
+>;
 
 impl<NodeId, PortId, Vector> Cell<NodeId, PortId, Vector> {
     // Vector: Copy feels like it should be inferred from W, but oh well
@@ -163,7 +166,7 @@ impl<W: GraphEuclidean + ?Sized> GraphWidgetCell<W> for Cell<W::NodeId, W::PortI
     }
 
     #[inline]
-    fn position(&self, widget: &W) -> <W as GraphWidget>::Point {
+    fn position(&self, widget: &W) -> <W as GraphWidgetTypes>::Point {
         widget.anchor_point(&self.anchor) + self.offset
     }
 

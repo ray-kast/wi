@@ -23,7 +23,7 @@ enum CreateInner {
     Yielded(Arc<Shared>),
 }
 
-impl<W: GraphWidget + ?Sized> OperatorInner<W> for CreateInner {
+impl<W: NodeOps + ?Sized> OperatorInner<W> for CreateInner {
     fn new(cx: OperatorCx<W>) -> Self { Self::Init(CreateOpAccept::default()) }
 
     fn step(&mut self, key: Key, mut cx: OperatorCx<W>) {
@@ -56,7 +56,7 @@ impl<W: GraphWidget + ?Sized> OperatorInner<W> for CreateInner {
 
 struct CreateWithType(Arc<Shared>);
 
-impl<W: GraphWidget + ?Sized>
+impl<W: NodeOps + ?Sized>
     ContinueOnce<W, OpYielded<'_, '_, &'_ mut CreateInner>, Option<W::NodeKind>>
     for CreateWithType
 {

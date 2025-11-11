@@ -71,7 +71,7 @@ fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
     (steps, dec)
 }
 
-fn move_cursor<W: GraphWidget + ?Sized>(
+fn move_cursor<W: CursorOps + ?Sized>(
     count: Option<NonZeroU32>,
     cx: &mut ActionCx<W>,
     mut f: impl FnMut(
@@ -110,13 +110,8 @@ fn move_cursor<W: GraphWidget + ?Sized>(
     any
 }
 
-impl EditorMotion for actions::StepCursor {
-    fn process<W: GraphWidget + ?Sized, S: Selection>(
-        self,
-        count: Option<NonZeroU32>,
-        mut cx: ActionCx<W>,
-        selection: S,
-    ) -> bool {
+impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::StepCursor {
+    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
         let Self(step) = self;
 
         move_cursor(count, &mut cx, |steps, cursor, widget, cell| {
@@ -195,7 +190,7 @@ impl EditorMotion for actions::StepCursor {
     }
 }
 
-impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::ViewCursor {
+impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
     fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
         cx.widget.update_cursor(
@@ -207,13 +202,8 @@ impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::ViewCursor {
     }
 }
 
-impl EditorMotion for actions::GoToOpposite {
-    fn process<W: GraphWidget + ?Sized, S: Selection>(
-        self,
-        count: Option<NonZeroU32>,
-        mut cx: ActionCx<W>,
-        selection: S,
-    ) -> bool {
+impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::GoToOpposite {
+    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
         move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;
             let next = match (count.get(), cursor) {

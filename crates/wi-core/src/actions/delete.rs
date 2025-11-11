@@ -11,7 +11,7 @@ pub(super) mod actions {
     pub struct DeleteAtCursor;
 }
 
-fn fixup_cursor_missing<W: GraphWidget + ?Sized>(
+fn fixup_cursor_missing<W: CursorOps + ?Sized>(
     widget: &W,
     cell: &W::Cell,
     delete_node: impl Fn(W::NodeId) -> bool,
@@ -23,7 +23,7 @@ fn fixup_cursor_missing<W: GraphWidget + ?Sized>(
     }
 }
 
-fn fixup_cursor<W: GraphWidget + ?Sized>(
+fn fixup_cursor<W: CursorOps + ?Sized>(
     widget: &W,
     cursor: &WCursor<W>,
     cell: &W::Cell,
@@ -68,7 +68,7 @@ fn fixup_cursor<W: GraphWidget + ?Sized>(
     Some(fixed)
 }
 
-impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
+impl<W: CursorOps + EdgeOps + NodeOps + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
     fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 

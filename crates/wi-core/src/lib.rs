@@ -1,9 +1,9 @@
-use std::num::{NonZeroIsize, NonZeroU32};
+use std::num::NonZeroU32;
 
 use crate::{
     actions::Action,
     mode::Mode,
-    operators::{CurrentOperator, Operator},
+    operators::{CurrentOperator, Operator}, traits::{CursorOps, GraphWidgetTypes},
 };
 pub use crate::{
     actions::{ActionKind, MotionKind},
@@ -13,6 +13,11 @@ pub use crate::{
     operators::OperatorKind,
     status::Status,
 };
+
+pub mod prelude {
+    pub use crate::traits::*;
+    pub use crate::continuation::ContinueOnce;
+}
 
 pub extern crate shibari;
 
@@ -25,6 +30,7 @@ mod mode;
 pub mod modifiers;
 mod operators;
 mod status;
+pub mod traits;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
@@ -46,12 +52,13 @@ impl Side {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Port<N, P>(pub N, pub P);
 
-pub type WPort<W> = Port<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
+pub type WPort<W> = Port<<W as GraphWidgetTypes>::NodeId, <W as GraphWidgetTypes>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SidedPort<N, P>(pub Side, pub Port<N, P>);
 
-pub type WSidedPort<W> = SidedPort<<W as GraphWidget>::NodeId, <W as GraphWidget>::PortId>;
+pub type WSidedPort<W> =
+    SidedPort<<W as GraphWidgetTypes>::NodeId, <W as GraphWidgetTypes>::PortId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
@@ -74,7 +81,7 @@ pub enum CursorUpdate {
     CenterInView,
 }
 
-pub trait GraphWidgetCell<W: GraphWidget + ?Sized> {
+pub trait GraphWidgetCell<W: GraphWidgetTypes + ?Sized> {
     fn of_cursor(widget: &W, cursor: &WCursor<W>) -> Self;
 
     fn position(&self, widget: &W) -> W::Point;
@@ -82,110 +89,15 @@ pub trait GraphWidgetCell<W: GraphWidget + ?Sized> {
     fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell);
 }
 
-// TODO: drop references for types that are Copy
-pub trait GraphWidget {
-    type NodeId: Copy + Eq;
-    type PortId: Copy + Eq;
-
-    type Cell: GraphWidgetCell<Self>;
-    type Point: Copy;
-
-    type Context<'a>;
-
-    type NodeKind;
-
-    fn default_cursor(&self) -> WCursor<Self>;
-
-    fn nearest_node_where<F: Fn(&Self::NodeId) -> bool>(
-        &self,
-        cell: &Self::Cell,
-        pred: F,
-    ) -> Option<Self::NodeId>;
-
-    fn nearest_node(&self, cell: &Self::Cell) -> Option<Self::NodeId> {
-        self.nearest_node_where(cell, |_| true)
-    }
-
-    fn nearest_port(
-        &self,
-        node: &Self::NodeId,
-        side: Side,
-        cell: &Self::Cell,
-    ) -> Option<Self::PortId>;
-
-    fn step_port_by(
-        &self,
-        port: &WSidedPort<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortId)>;
-
-    fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
-        &self,
-        port: &WSidedPort<Self>,
-        cell: &Self::Cell,
-        pred: F,
-    ) -> Option<WEdgeCursor<Self>>;
-
-    #[inline]
-    fn nearest_edge(
-        &self,
-        port: &WSidedPort<Self>,
-        cell: &Self::Cell,
-    ) -> Option<WEdgeCursor<Self>> {
-        self.nearest_edge_where(port, cell, |_| true)
-    }
-
-    fn step_edge_by(
-        &self,
-        edge: &WEdgeCursor<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, WPort<Self>)>;
-
-    fn step_point_by(&self, point: &Self::Point, step: Step, count: usize) -> Self::Point;
-
-    fn update_cursor(
-        &mut self,
-        update: CursorUpdate,
-        cursor: &WCursor<Self>,
-        cx: &mut Self::Context<'_>,
-    );
-
-    fn update_status(&mut self, status: Status, cx: &mut Self::Context<'_>);
-
-    fn delete_node(&mut self, node: &Self::NodeId, cx: &mut Self::Context<'_>) -> bool;
-
-    fn delete_edge(
-        &mut self,
-        from: &WPort<Self>,
-        to: &WPort<Self>,
-        cx: &mut Self::Context<'_>,
-    ) -> bool;
-
-    fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
-        &mut self,
-        then: Yielded<Self, Y, C>,
-        cx: &mut Self::Context<'_>,
-    );
-
-    fn create_node(
-        &mut self,
-        kind: Self::NodeKind,
-        position: Self::Point,
-        cx: &mut Self::Context<'_>,
-    );
-
-    fn quit(&mut self, cx: &mut Self::Context<'_>);
-}
-
 #[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]
 #[must_use]
-pub struct GraphWidgetDriver<W: GraphWidget + ?Sized> {
+pub struct GraphWidgetDriver<W: GraphWidgetTypes + ?Sized> {
     current_operator: CurrentOperator,
     inner: DriverInner<W>,
 }
 
 #[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]
-struct DriverInner<W: GraphWidget + ?Sized> {
+struct DriverInner<W: GraphWidgetTypes + ?Sized> {
     cursor: Option<WCursor<W>>,
     cell: W::Cell,
     debug: bool,
@@ -196,7 +108,7 @@ struct DriverInner<W: GraphWidget + ?Sized> {
     last_action: Option<Action<W>>,
 }
 
-impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
+impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
     pub fn new(widget: &W) -> Self {
         let cursor = widget.default_cursor();
         let me = Self {
@@ -216,7 +128,9 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 
         me
     }
+}
 
+impl<W: GraphWidgetTypes + ?Sized> GraphWidgetDriver<W> {
     #[inline]
     pub fn cursor(&self) -> &WCursor<W> {
         self.inner.cursor.as_ref().unwrap_or_else(|| unreachable!())

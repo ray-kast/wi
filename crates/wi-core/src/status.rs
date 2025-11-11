@@ -6,7 +6,8 @@ use crate::{
     actions::{Action, ActionKind},
     mode::ModeKind,
     operators::{Operator, OperatorKind},
-    GraphWidget, GraphWidgetDriver,
+    traits::GraphWidgetTypes,
+    GraphWidgetDriver,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -19,7 +20,7 @@ pub struct Status {
     pub debug: bool,
 }
 
-impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
+impl<W: GraphWidgetTypes + ?Sized> GraphWidgetDriver<W> {
     pub fn status(&self) -> Status {
         Status {
             count: self.inner.count.map(NonZero::get),
