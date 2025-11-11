@@ -1,7 +1,7 @@
 use std::{mem, num::NonZeroIsize, sync::Arc};
 
 use masonry::{
-    core::{EventCtx, PointerInfo, PointerState, WidgetPod},
+    core::{EventCtx, MutateCtx, PointerInfo, PointerState, WidgetPod},
     dpi::PhysicalPosition,
     kurbo::{Affine, Point, Rect, Size, Vec2},
     widgets::Flex,
@@ -19,6 +19,7 @@ use super::{
     cell::Cell,
     status::RenderedStatus,
     view::{Pan, Zoom},
+    GraphAction, GraphActionKind,
 };
 use crate::{
     drag::DragHandler,
@@ -62,6 +63,16 @@ impl<N: Node> EditorCore<N> {
         }
     }
 
+    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut MutateCtx) {
+        if Arc::ptr_eq(&self.graph, &graph) {
+            return;
+        }
+
+        self.cancel_node_drag(None, || ());
+        self.graph = graph;
+        cx.request_render();
+    }
+
     #[inline]
     pub fn view_transform(&self, size: Size) -> Affine {
         Affine::scale_about(self.zoom.scale(), (size.to_vec2() * 0.5).to_point())
@@ -71,6 +82,13 @@ impl<N: Node> EditorCore<N> {
     fn iview_transform(&self, size: Size) -> Affine {
         Affine::translate(-self.pan.translation(size))
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
+    }
+
+    fn submit_action(&self, kind: GraphActionKind<N>, cx: &mut EventCtx) {
+        cx.submit_action::<GraphAction<N>>(GraphAction {
+            graph: Arc::clone(&self.graph),
+            kind,
+        });
     }
 }
 
@@ -84,9 +102,9 @@ impl<N: Node> EditorCore<N> {
         &mut self,
         pointer: PointerInfo,
         state: &PointerState,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) {
-        let point = self.iview_transform(ctx.size()) * ctx.local_position(state.position);
+        let point = self.iview_transform(cx.size()) * cx.local_position(state.position);
 
         let Some(node) = self
             .graph
@@ -105,10 +123,10 @@ impl<N: Node> EditorCore<N> {
     fn node_drag_delta(
         nodes: &mut Graph<N>,
         zoom: &Zoom,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) -> impl FnOnce(&(NodeIndex, Point), PhysicalPosition<f64>, PhysicalPosition<f64>) {
         |&(node, start_pos), from, to| {
-            let delta = ctx.local_position(to) - ctx.local_position(from);
+            let delta = cx.local_position(to) - cx.local_position(from);
             let node = &mut nodes[node];
 
             let Some(pos) = make_mut!(*node).position_mut() else {
@@ -116,7 +134,7 @@ impl<N: Node> EditorCore<N> {
             };
             let prev = mem::replace(pos, start_pos + delta / zoom.scale());
             if prev != node.position() {
-                ctx.request_render();
+                cx.request_render();
             }
         }
     }
@@ -126,12 +144,12 @@ impl<N: Node> EditorCore<N> {
         &mut self,
         pointer: &PointerInfo,
         state: &PointerState,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) {
         self.node_drag.update_drag(
             pointer,
             state,
-            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, ctx),
+            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, cx),
         );
     }
 
@@ -140,22 +158,28 @@ impl<N: Node> EditorCore<N> {
         &mut self,
         pointer: &PointerInfo,
         state: &PointerState,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) {
         self.node_drag.complete_drag(
             pointer,
             state,
-            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, ctx),
+            Self::node_drag_delta(make_mut!(self.graph), &self.zoom, cx),
         );
+
+        self.submit_action(GraphActionKind::NodeMoved, cx);
     }
 
     #[inline]
-    pub fn cancel_node_drag(&mut self, pointer: Option<&PointerInfo>, ctx: &mut EventCtx) {
+    pub fn cancel_node_drag(
+        &mut self,
+        pointer: Option<&PointerInfo>,
+        request_render: impl FnOnce(),
+    ) {
         self.node_drag.cancel_drag(pointer, |&(n, p)| {
             let node = &mut make_mut!(self.graph)[n];
             let prev = mem::replace(&mut make_mut!(*node).position(), p);
             if prev != node.position() {
-                ctx.request_render();
+                request_render();
             }
         });
     }
@@ -379,11 +403,16 @@ impl<N: Node> GraphWidget for EditorCore<N> {
     }
 
     #[inline]
-    fn delete_node(&mut self, &node: &Self::NodeId) -> bool {
-        make_mut!(self.graph).remove_node(node).is_some()
+    fn delete_node(&mut self, &node: &Self::NodeId, cx: &mut EventCtx) -> bool {
+        let Some(n) = make_mut!(self.graph).remove_node(node) else {
+            return false;
+        };
+
+        self.submit_action(GraphActionKind::NodeDeleted(n), cx);
+        true
     }
 
-    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool {
+    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>, cx: &mut EventCtx) -> bool {
         let Some(e) = self
             .graph
             .edges_connecting(from.0, to.0)
@@ -393,28 +422,26 @@ impl<N: Node> GraphWidget for EditorCore<N> {
         };
         let e = e.id();
 
-        make_mut!(self.graph)
+        let edge = make_mut!(self.graph)
             .remove_edge(e)
             .unwrap_or_else(|| unreachable!());
+        self.submit_action(GraphActionKind::EdgeDeleted(from.0, to.0, edge), cx);
         true
     }
 
     fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
         then: Yielded<Self, Y, C>,
+        cx: &mut EventCtx,
     ) {
         then.resume_now(self, Some(N::PROTOTYPE));
     }
 
-    fn create_node(
-        &mut self,
-        kind: Self::NodeKind,
-        position: Self::Point,
-        ctx: &mut Self::Context<'_>,
-    ) {
+    fn create_node(&mut self, kind: Self::NodeKind, position: Self::Point, cx: &mut EventCtx) {
         make_mut!(self.graph).add_node(N::create(kind, position).into());
-        ctx.request_render();
+        self.submit_action(GraphActionKind::NodeCreated, cx);
+        cx.request_render();
     }
 
-    fn quit(&mut self, ctx: &mut Self::Context<'_>) { ctx.exit(); }
+    fn quit(&mut self, cx: &mut EventCtx) { cx.exit(); }
 }

@@ -55,14 +55,14 @@ impl Pan {
     fn drag_delta(
         pan: &mut Vec2,
         zoom: &Zoom,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) -> impl FnOnce(&Vec2, PhysicalPosition<f64>, PhysicalPosition<f64>) {
         |&start_pan, from, to| {
-            let delta = ctx.local_position(from) - ctx.local_position(to);
+            let delta = cx.local_position(from) - cx.local_position(to);
 
             let prev = mem::replace(pan, start_pan + delta / zoom.scale());
             if prev != *pan {
-                ctx.request_render();
+                cx.request_render();
             }
         }
     }
@@ -73,10 +73,10 @@ impl Pan {
         pointer: &PointerInfo,
         state: &PointerState,
         zoom: &Zoom,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) {
         self.drag
-            .update_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, ctx));
+            .update_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, cx));
     }
 
     #[inline]
@@ -85,23 +85,23 @@ impl Pan {
         pointer: &PointerInfo,
         state: &PointerState,
         zoom: &Zoom,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
     ) {
         self.drag
-            .complete_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, ctx));
+            .complete_drag(pointer, state, Self::drag_delta(&mut self.pan, zoom, cx));
     }
 
     #[inline]
-    pub fn cancel_drag(&mut self, pointer: Option<&PointerInfo>, ctx: &mut EventCtx) {
+    pub fn cancel_drag(&mut self, pointer: Option<&PointerInfo>, cx: &mut EventCtx) {
         self.drag.cancel_drag(pointer, |&s| {
             let prev = mem::replace(&mut self.pan, s);
             if prev != self.pan {
-                ctx.request_render();
+                cx.request_render();
             }
         });
     }
 
-    pub fn scroll(&mut self, delta: &ScrollDelta, transp: bool, zoom: &Zoom, ctx: &mut EventCtx) {
+    pub fn scroll(&mut self, delta: &ScrollDelta, transp: bool, zoom: &Zoom, cx: &mut EventCtx) {
         let delta = scroll_pixels(delta) / zoom.scale();
         let delta = if transp {
             Vec2::new(delta.y, delta.x)
@@ -111,7 +111,7 @@ impl Pan {
         let prev = self.pan;
         self.pan -= delta * SCROLL_LINE_PX;
         if prev != self.pan {
-            ctx.request_render();
+            cx.request_render();
         }
     }
 }
@@ -134,7 +134,7 @@ impl Zoom {
     #[inline]
     pub fn reset(&mut self) { self.0 = Self::DEFAULT; }
 
-    pub fn scroll(&mut self, delta: &ScrollDelta, ctx: &mut EventCtx) {
+    pub fn scroll(&mut self, delta: &ScrollDelta, cx: &mut EventCtx) {
         let delta = scroll_pixels(delta);
         let primary = if !delta.y.is_finite() || delta.x.abs() > delta.y.abs() {
             delta.x
@@ -150,7 +150,7 @@ impl Zoom {
 
         #[expect(clippy::float_cmp, reason = "Imprecision fails safe here")]
         if self.0 != prev {
-            ctx.request_render();
+            cx.request_render();
         }
     }
 }

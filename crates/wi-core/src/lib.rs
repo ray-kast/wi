@@ -152,13 +152,19 @@ pub trait GraphWidget {
 
     fn update_status(&mut self, status: Status, cx: &mut Self::Context<'_>);
 
-    fn delete_node(&mut self, node: &Self::NodeId) -> bool;
+    fn delete_node(&mut self, node: &Self::NodeId, cx: &mut Self::Context<'_>) -> bool;
 
-    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>) -> bool;
+    fn delete_edge(
+        &mut self,
+        from: &WPort<Self>,
+        to: &WPort<Self>,
+        cx: &mut Self::Context<'_>,
+    ) -> bool;
 
     fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
         then: Yielded<Self, Y, C>,
+        cx: &mut Self::Context<'_>,
     );
 
     fn create_node(

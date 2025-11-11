@@ -82,12 +82,12 @@ impl<W: GraphWidget + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
             |f, t| matches!(&*cursor, Cursor::Edge(e) if e.from == f && e.to == t),
         );
         let changed = match cursor {
-            crate::Cursor::Node(n) => cx.widget.delete_node(n),
+            crate::Cursor::Node(n) => cx.widget.delete_node(n, cx.inner),
             crate::Cursor::Edge(EdgeCursor {
                 from,
                 to,
                 anchor: _,
-            }) => cx.widget.delete_edge(from, to),
+            }) => cx.widget.delete_edge(from, to, cx.inner),
             crate::Cursor::Port(_) | crate::Cursor::FixedPoint(_) => false,
         };
 

@@ -1,11 +1,11 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, fmt, sync::Arc};
 
 use masonry::{core::NoAction, kurbo::Point};
 use petgraph::{prelude::*, visit::IntoEdgeReferences};
 
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
-pub trait Node: Clone {
+pub trait Node: fmt::Debug + Clone + Send + Sync + 'static {
     type Prototype;
     type Icon;
     type Widget;
@@ -138,6 +138,11 @@ pub fn port_overflow<T>() -> T { panic!("Port number exceeded {PORT_MAX}") }
 
 #[derive(Debug)]
 pub struct Checked<G>(Arc<G>);
+
+impl<G> Clone for Checked<G> {
+    #[inline]
+    fn clone(&self) -> Self { Self(Arc::clone(&self.0)) }
+}
 
 impl<G> Checked<G> {
     #[expect(

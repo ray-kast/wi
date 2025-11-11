@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+pub use action::{GraphAction, GraphActionKind};
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
-        render_text, EventCtx, Ime, KeyboardEvent, NoAction, PaintCtx, PointerButton,
+        render_text, EventCtx, Ime, KeyboardEvent, MutateCtx, PaintCtx, PointerButton,
         PointerButtonEvent, PointerEvent, PointerScrollEvent, StyleSet, TextEvent, Update, Widget,
     },
     kurbo::{Affine, Circle, Point, Rect, Size, Stroke, Vec2},
@@ -27,6 +28,7 @@ use crate::{
     widget::node::NodeExt,
 };
 
+mod action;
 mod cell;
 mod core;
 mod edge;
@@ -53,8 +55,14 @@ impl<N: Node> GraphEditor<N> {
         }
     }
 
+    #[inline]
+    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut MutateCtx) {
+        self.core.set_graph(graph, cx);
+        // TODO: fixup cursor and pan/zoom
+    }
+
     fn paint_port(
-        ctx: &mut PaintCtx,
+        cx: &mut PaintCtx,
         scene: &mut Scene,
         tf: Affine,
         pos: Point,
@@ -64,7 +72,7 @@ impl<N: Node> GraphEditor<N> {
         scene.fill(
             Fill::NonZero,
             tf,
-            if ctx.is_focus_target() && focused {
+            if cx.is_focus_target() && focused {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
             } else {
                 OpaqueColor::from_rgb8(0x9a, 0x9a, 0x9a)
@@ -79,7 +87,7 @@ impl<N: Node> GraphEditor<N> {
         reason = "The logic here would be difficult to refactor"
     )]
     fn paint_node(
-        ctx: &mut PaintCtx,
+        cx: &mut PaintCtx,
         scene: &mut Scene,
         tf: Affine,
         node: (NodeIndex, &N),
@@ -158,7 +166,7 @@ impl<N: Node> GraphEditor<N> {
         }
 
         let name_rect = node.name_rect();
-        let (fcx, lcx) = ctx.text_contexts();
+        let (fcx, lcx) = cx.text_contexts();
 
         match (node.name(), node.label()) {
             (s, NodeLabel::Name) | (_, NodeLabel::Text(s)) => {
@@ -247,7 +255,7 @@ impl<N: Node> GraphEditor<N> {
             }
         }
 
-        if ctx.is_focus_target() && focus_node == Some(id) {
+        if cx.is_focus_target() && focus_node == Some(id) {
             scene.stroke(
                 &Stroke::new(4.0 * weight.max(0.5)),
                 tf,
@@ -259,7 +267,7 @@ impl<N: Node> GraphEditor<N> {
 
         for port in 0..node.in_arity() {
             Self::paint_port(
-                ctx,
+                cx,
                 scene,
                 tf,
                 node.port_pos(port, Side::In),
@@ -270,7 +278,7 @@ impl<N: Node> GraphEditor<N> {
 
         for port in 0..node.out_arity() {
             Self::paint_port(
-                ctx,
+                cx,
                 scene,
                 tf,
                 node.port_pos(port, Side::Out),
@@ -281,7 +289,7 @@ impl<N: Node> GraphEditor<N> {
     }
 
     fn paint_edge(
-        ctx: &mut PaintCtx,
+        cx: &mut PaintCtx,
         scene: &mut Scene,
         tf: Affine,
         focused: bool,
@@ -292,7 +300,7 @@ impl<N: Node> GraphEditor<N> {
         scene.stroke(
             &Stroke::new(5.0 * weight.max(1.0)),
             tf,
-            if ctx.is_focus_target() && focused {
+            if cx.is_focus_target() && focused {
                 OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
             } else {
                 OpaqueColor::from_rgb8(0x7f, 0x7f, 0x7f)
@@ -309,7 +317,7 @@ impl<N: Node> GraphEditor<N> {
 }
 
 impl<N: Node + 'static> Widget for GraphEditor<N> {
-    type Action = NoAction;
+    type Action = GraphAction<N>;
 
     fn accepts_focus(&self) -> bool { true }
 
@@ -317,20 +325,20 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
 
     fn accepts_text_input(&self) -> bool { true }
 
-    fn register_children(&mut self, ctx: &mut masonry::core::RegisterCtx) {
-        ctx.register_child(&mut self.core.statusbar);
+    fn register_children(&mut self, cx: &mut masonry::core::RegisterCtx) {
+        cx.register_child(&mut self.core.statusbar);
     }
 
     fn layout(
         &mut self,
-        ctx: &mut masonry::core::LayoutCtx,
+        cx: &mut masonry::core::LayoutCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         bc: &masonry::core::BoxConstraints,
     ) -> masonry::kurbo::Size {
-        let sb_size = ctx.run_layout(&mut self.core.statusbar, &bc.loosen());
+        let sb_size = cx.run_layout(&mut self.core.statusbar, &bc.loosen());
         let viewport_height = (bc.max().height - sb_size.height).max(0.0);
 
-        ctx.place_child(
+        cx.place_child(
             &mut self.core.statusbar,
             Point::new(0.0, bc.max().height - sb_size.height),
         );
@@ -343,11 +351,11 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
 
     fn paint(
         &mut self,
-        ctx: &mut PaintCtx,
+        cx: &mut PaintCtx,
         _props: &masonry::core::PropertiesRef<'_>,
         scene: &mut Scene,
     ) {
-        let tf = self.core.view_transform(ctx.size());
+        let tf = self.core.view_transform(cx.size());
         let weight = self.core.zoom.scale().recip();
 
         scene.push_layer(BlendMode::default(), 1.0, Affine::IDENTITY, &self.viewport);
@@ -393,7 +401,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 .is_some_and(|e| (e.from, e.to) == (Port(from, from_port), Port(to, to_port)))
             {
                 Self::paint_edge(
-                    ctx,
+                    cx,
                     scene,
                     tf,
                     false,
@@ -406,7 +414,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
 
         if let Some(e) = focus_edge {
             Self::paint_edge(
-                ctx,
+                cx,
                 scene,
                 tf,
                 true,
@@ -417,7 +425,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
         }
 
         for (id, node) in self.core.graph.node_references() {
-            Self::paint_node(ctx, scene, tf, (id, node), focus_node, focus_port, weight);
+            Self::paint_node(cx, scene, tf, (id, node), focus_node, focus_port, weight);
         }
 
         if self.driver.view_debug() {
@@ -428,7 +436,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             scene.fill(
                 Fill::NonZero,
                 tf,
-                if ctx.is_focus_target() {
+                if cx.is_focus_target() {
                     OpaqueColor::from_rgb8(0x90, 0x37, 0x22)
                 } else {
                     OpaqueColor::from_rgb8(0xb3, 0xb3, 0xb3)
@@ -446,7 +454,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
 
     fn accessibility(
         &mut self,
-        _ctx: &mut masonry::core::AccessCtx,
+        _cx: &mut masonry::core::AccessCtx,
         _props: &masonry::core::PropertiesRef<'_>,
         _node: &mut accesskit::Node,
     ) {
@@ -461,20 +469,20 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
 
     fn update(
         &mut self,
-        ctx: &mut masonry::core::UpdateCtx,
+        cx: &mut masonry::core::UpdateCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         event: &Update,
     ) {
         #[expect(clippy::single_match, reason = "for maintainability")]
         match event {
-            Update::FocusChanged(_) => ctx.request_render(),
+            Update::FocusChanged(_) => cx.request_render(),
             _ => (),
         }
     }
 
     fn on_text_event(
         &mut self,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         event: &TextEvent,
     ) {
@@ -484,8 +492,8 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 key: Key::Named(NamedKey::Escape),
                 ..
             }) if self.core.pan.in_drag() || self.core.in_node_drag() => {
-                self.core.pan.cancel_drag(None, ctx);
-                self.core.cancel_node_drag(None, ctx);
+                self.core.pan.cancel_drag(None, cx);
+                self.core.cancel_node_drag(None, || cx.request_render());
             },
             &TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
@@ -496,7 +504,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             }) => {
                 if !self
                     .driver
-                    .handle_char_input(&mut self.core, s, modifiers, ctx)
+                    .handle_char_input(&mut self.core, s, modifiers, cx)
                 {
                     return;
                 }
@@ -510,29 +518,28 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             }) => {
                 if !self
                     .driver
-                    .handle_named_keypress(&mut self.core, k, modifiers, ctx)
+                    .handle_named_keypress(&mut self.core, k, modifiers, cx)
                 {
                     return;
                 }
             },
             TextEvent::Ime(Ime::Commit(s)) => {
-                self.driver
-                    .handle_char_input(&mut self.core, s, M_NONE, ctx);
+                self.driver.handle_char_input(&mut self.core, s, M_NONE, cx);
             },
             _ => return,
         }
 
-        ctx.set_handled();
+        cx.set_handled();
     }
 
     fn on_pointer_event(
         &mut self,
-        ctx: &mut EventCtx,
+        cx: &mut EventCtx,
         _props: &mut masonry::core::PropertiesMut<'_>,
         event: &PointerEvent,
     ) {
         // TODO: how do i do this differently
-        ctx.request_focus();
+        cx.request_focus();
 
         match event {
             PointerEvent::Down(PointerButtonEvent {
@@ -544,9 +551,9 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                     && state.modifiers.difference(M_CTRL) == M_NONE
                 {
                     self.core.pan.begin_drag(*pointer, state);
-                    ctx.capture_pointer();
+                    cx.capture_pointer();
                 } else {
-                    self.core.pan.cancel_drag(Some(pointer), ctx);
+                    self.core.pan.cancel_drag(Some(pointer), cx);
                 }
             },
             PointerEvent::Down(PointerButtonEvent {
@@ -555,17 +562,18 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 state,
             }) => {
                 if state.buttons == PointerButton::Primary.into() && state.modifiers == M_NONE {
-                    self.core.begin_node_drag(*pointer, state, ctx);
-                    ctx.capture_pointer();
+                    self.core.begin_node_drag(*pointer, state, cx);
+                    cx.capture_pointer();
                 } else {
-                    self.core.cancel_node_drag(Some(pointer), ctx);
+                    self.core
+                        .cancel_node_drag(Some(pointer), || cx.request_render());
                 }
             },
             PointerEvent::Move(u) => {
                 self.core
                     .pan
-                    .update_drag(&u.pointer, &u.current, &self.core.zoom, ctx);
-                self.core.update_node_drag(&u.pointer, &u.current, ctx);
+                    .update_drag(&u.pointer, &u.current, &self.core.zoom, cx);
+                self.core.update_node_drag(&u.pointer, &u.current, cx);
             },
             PointerEvent::Up(PointerButtonEvent {
                 button: Some(PointerButton::Auxiliary),
@@ -574,32 +582,32 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             }) => {
                 self.core
                     .pan
-                    .complete_drag(pointer, state, &self.core.zoom, ctx);
+                    .complete_drag(pointer, state, &self.core.zoom, cx);
             },
             PointerEvent::Up(PointerButtonEvent {
                 button: Some(PointerButton::Primary),
                 pointer,
                 state,
             }) => {
-                self.core.complete_node_drag(pointer, state, ctx);
+                self.core.complete_node_drag(pointer, state, cx);
             },
             PointerEvent::Cancel(i) => {
-                self.core.pan.cancel_drag(Some(i), ctx);
-                self.core.cancel_node_drag(Some(i), ctx);
+                self.core.pan.cancel_drag(Some(i), cx);
+                self.core.cancel_node_drag(Some(i), || cx.request_render());
             },
             PointerEvent::Scroll(PointerScrollEvent {
                 pointer: _,
                 delta,
                 state,
             }) => match state.modifiers {
-                M_NONE => self.core.pan.scroll(delta, false, &self.core.zoom, ctx),
-                M_CTRL => self.core.zoom.scroll(delta, ctx),
-                M_SHIFT => self.core.pan.scroll(delta, true, &self.core.zoom, ctx),
+                M_NONE => self.core.pan.scroll(delta, false, &self.core.zoom, cx),
+                M_CTRL => self.core.zoom.scroll(delta, cx),
+                M_SHIFT => self.core.pan.scroll(delta, true, &self.core.zoom, cx),
                 _ => return,
             },
             _ => return,
         }
 
-        ctx.set_handled();
+        cx.set_handled();
     }
 }

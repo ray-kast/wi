@@ -56,7 +56,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     }
 
     #[instrument(
-        skip(self, widget, ctx),
+        skip(self, widget, cx),
         fields(
             op = ?self.current_operator,
             mode = ?self.inner.mode,
@@ -69,10 +69,10 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         widget: &mut W,
         key: K,
         mods: Modifiers,
-        ctx: &mut W::Context<'_>,
+        cx: &mut W::Context<'_>,
     ) -> bool {
-        self.mutate_check(widget, ctx, |me, widget, ctx| {
-            me.handle_key(widget, Key::Named(key, mods), ctx)
+        self.mutate_check(widget, cx, |me, widget, cx| {
+            me.handle_key(widget, Key::Named(key, mods), cx)
         })
     }
 

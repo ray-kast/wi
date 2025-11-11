@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
-use wi_masonry::graph::Checked;
+use wi_masonry::{
+    graph::Checked,
+    widget::{GraphAction, GraphActionKind},
+};
 use xilem::{
-    core::{View, ViewMarker},
+    core::{MessageResult, View, ViewMarker},
     Pod, ViewCtx,
 };
 
@@ -11,51 +14,89 @@ use crate::{
     widget,
 };
 
-pub fn graph_editor<N>(graph: Checked<Graph<N>>) -> GraphEditor<N> {
-    GraphEditor(graph.into_inner())
+type Callback<N, State, Action> =
+    Box<dyn Fn(&mut State, Checked<Graph<N>>, GraphActionKind<N>) -> Action + Send + Sync>;
+pub fn graph_editor<
+    N,
+    State,
+    Action,
+    F: Fn(&mut State, Checked<Graph<N>>, GraphActionKind<N>) -> Action + Send + Sync + 'static,
+>(
+    graph: Checked<Graph<N>>,
+    on_action: F,
+) -> GraphEditor<N, State, Action> {
+    GraphEditor {
+        graph: graph.into_inner(),
+        on_action: Box::new(on_action),
+    }
 }
 
 #[must_use]
-#[derive(Debug)]
-pub struct GraphEditor<N>(pub(super) Arc<Graph<N>>);
+#[expect(missing_debug_implementations)]
+pub struct GraphEditor<N, State, Action> {
+    pub(super) graph: Arc<Graph<N>>,
+    on_action: Callback<N, State, Action>,
+}
 
-impl<N> ViewMarker for GraphEditor<N> {}
-impl<S, A, N: Node + 'static> View<S, A, ViewCtx> for GraphEditor<N> {
+impl<N: Node + 'static, State: 'static, Action: 'static> ViewMarker
+    for GraphEditor<N, State, Action>
+{
+}
+
+impl<N: Node + 'static, State: 'static, Action: 'static> View<State, Action, ViewCtx>
+    for GraphEditor<N, State, Action>
+{
     type Element = Pod<widget::GraphEditor<N>>;
     type ViewState = ();
 
-    fn build(&self, ctx: &mut ViewCtx, _app_state: &mut S) -> (Self::Element, Self::ViewState) {
-        let graph = widget::GraphEditor::new(Arc::clone(&self.0));
-        (ctx.with_action_widget(|c| c.create_pod(graph)), ())
+    fn build(&self, cx: &mut ViewCtx, _app_state: &mut State) -> (Self::Element, Self::ViewState) {
+        let graph = widget::GraphEditor::new(Arc::clone(&self.graph));
+        (cx.with_action_widget(|c| c.create_pod(graph)), ())
     }
 
     fn rebuild(
         &self,
-        _prev: &Self,
-        _view_state: &mut Self::ViewState,
-        _ctx: &mut ViewCtx,
-        _element: xilem::core::Mut<'_, Self::Element>,
-        _app_state: &mut S,
+        prev: &Self,
+        (): &mut Self::ViewState,
+        _cx: &mut ViewCtx,
+        mut element: xilem::core::Mut<'_, Self::Element>,
+        _app_state: &mut State,
     ) {
-        todo!()
+        if Arc::ptr_eq(&prev.graph, &self.graph) {
+            return;
+        }
+
+        element
+            .widget
+            .set_graph(Arc::clone(&self.graph), &mut element.ctx);
     }
 
     fn teardown(
         &self,
         (): &mut Self::ViewState,
-        ctx: &mut ViewCtx,
+        cx: &mut ViewCtx,
         element: xilem::core::Mut<'_, Self::Element>,
     ) {
-        ctx.teardown_leaf(element);
+        cx.teardown_leaf(element);
     }
 
     fn message(
         &self,
-        _view_state: &mut Self::ViewState,
-        _message: &mut xilem::core::MessageContext,
+        (): &mut Self::ViewState,
+        message: &mut xilem::core::MessageContext,
         _element: xilem::core::Mut<'_, Self::Element>,
-        _app_state: &mut S,
-    ) -> xilem::core::MessageResult<A> {
-        todo!()
+        app_state: &mut State,
+    ) -> MessageResult<Action> {
+        let Some(a) = message.take_message::<GraphAction<N>>() else {
+            tracing::error!(?message, "Wrong message type in GraphEditor::message");
+            return MessageResult::Stale;
+        };
+        let GraphAction { graph, kind } = *a;
+
+        MessageResult::Action((self.on_action)(
+            app_state,
+            unsafe { Checked::new_unchecked(graph) },
+            kind,
+        ))
     }
 }

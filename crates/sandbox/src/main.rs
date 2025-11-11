@@ -84,10 +84,20 @@ impl wi_xilem::graph::Node for Node {
     fn style(&self) -> NodeStyle { self.style }
 }
 
-#[derive(Default)]
-struct State {}
+struct State {
+    graph: Checked<Graph<Node>>,
+}
 
-fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
+fn app_logic(state: &mut State) -> impl WidgetView<State> + use<> {
+    flex_col((
+        graph_editor(state.graph.clone(), |state: &mut State, graph, _| {
+            state.graph = graph;
+        })
+        .flex(1.0),
+    ))
+}
+
+fn main() {
     let mut graph = Graph::<Node>::new();
 
     let a = graph.add_node(
@@ -136,12 +146,10 @@ fn app_logic(_data: &mut State) -> impl WidgetView<State> + use<> {
         to_port: 1,
     });
 
-    flex_col((graph_editor(Checked::new(graph.into())).flex(1.0),))
-}
-
-fn main() {
     let app = Xilem::new_simple(
-        State::default(),
+        State {
+            graph: Checked::new(graph.into()),
+        },
         app_logic,
         WindowOptions::new("wi")
             .with_min_inner_size(LogicalSize::new(525.0, 350.0))

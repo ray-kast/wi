@@ -45,7 +45,7 @@ impl<W: GraphWidget + ?Sized> OperatorInner<W> for CreateInner {
                         *self = Self::Yielded(Arc::clone(&shared));
                         let (widget, then) = cx.into_yielded(CreateWithType(shared), self);
 
-                        widget.prompt_node_kind(then);
+                        widget.prompt_node_kind(then, todo!());
                     },
                 }
             },
