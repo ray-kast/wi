@@ -423,7 +423,6 @@ impl<N: Node> NodeOps for EditorCore<N> {
     fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
         then: Yielded<Self, Y, C>,
-        cx: &mut EventCtx,
     ) {
         then.resume_now(self, Some(N::PROTOTYPE));
     }

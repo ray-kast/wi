@@ -81,7 +81,10 @@ impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y, C> Yielded<'a, 'w, W, Y, C> {
     }
 
     #[inline]
-    pub fn resume_now<T>(self, widget: &'a mut W, value: T)
+    pub fn cx(&mut self) -> &mut W::Context<'w> { self.cx }
+
+    #[inline]
+    pub fn resume_now<T>(self, widget: &'a mut W, value: T) -> &'a mut W::Context<'w>
     where C: ContinueOnce<W, Y, T> {
         self.then.continue_once(value, ContinueCx {
             widget,
@@ -89,6 +92,8 @@ impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y, C> Yielded<'a, 'w, W, Y, C> {
             dispatch: Dispatch::Immediate(self.caller),
             inner: self.cx,
         });
+
+        self.cx
     }
 
     #[inline]

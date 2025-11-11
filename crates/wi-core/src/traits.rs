@@ -1,7 +1,8 @@
 use std::num::NonZeroIsize;
 
 use crate::{
-    ContinueOnce, CursorUpdate, GraphWidgetCell, Side, Status, Step, WCursor, WEdgeCursor, WPort, WSidedPort, Yielded
+    ContinueOnce, CursorUpdate, GraphWidgetCell, Side, Status, Step, WCursor, WEdgeCursor, WPort,
+    WSidedPort, Yielded,
 };
 
 // TODO: drop references for types that are Copy
@@ -93,7 +94,6 @@ pub trait NodeOps: GraphWidgetTypes {
     fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &mut self,
         then: Yielded<Self, Y, C>,
-        cx: &mut Self::Context<'_>,
     );
 
     fn create_node(

@@ -45,7 +45,7 @@ impl<W: NodeOps + ?Sized> OperatorInner<W> for CreateInner {
                         *self = Self::Yielded(Arc::clone(&shared));
                         let (widget, then) = cx.into_yielded(CreateWithType(shared), self);
 
-                        widget.prompt_node_kind(then, todo!());
+                        widget.prompt_node_kind(then);
                     },
                 }
             },
