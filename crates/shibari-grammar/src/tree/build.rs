@@ -297,7 +297,8 @@ impl<
             })
             .collect();
 
-        debug_assert!(Vec::len(&roots) == root_len);
+        #[cfg(debug_assertions)]
+        assert!(Vec::len(&roots) == root_len);
 
         for (label, (_, res)) in label_ids {
             for (root, res) in res {
