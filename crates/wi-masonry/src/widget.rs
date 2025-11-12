@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-pub use action::{GraphAction, GraphActionKind};
 use masonry::{
     core::{
         keyboard::{Key, KeyState, NamedKey},
@@ -22,7 +21,7 @@ use wi_core::{
     Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
-use self::{core::EditorCore, edge::Edge};
+use self::{context::AnyContext, core::EditorCore, edge::Edge};
 use crate::{
     graph::{self, Graph, InputLabel, Node, NodeLabel, NodeStyle, OutputLabel},
     widget::node::NodeExt,
@@ -30,11 +29,14 @@ use crate::{
 
 mod action;
 mod cell;
+mod context;
 mod core;
 mod edge;
 mod node;
 mod status;
 mod view;
+
+pub use action::*;
 
 #[expect(missing_debug_implementations, reason = "WidgetPod doesn't impl Debug")]
 pub struct GraphEditor<N: Node> {
@@ -493,7 +495,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 ..
             }) if self.core.pan.in_drag() || self.core.in_node_drag() => {
                 self.core.pan.cancel_drag(None, cx);
-                self.core.cancel_node_drag(None, || cx.request_render());
+                self.core.cancel_node_drag(None, cx);
             },
             &TextEvent::Keyboard(KeyboardEvent {
                 state: KeyState::Down,
@@ -504,7 +506,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
             }) => {
                 if !self
                     .driver
-                    .handle_char_input(&mut self.core, s, modifiers, cx)
+                    .handle_char_input(&mut self.core, s, modifiers, (&mut *cx).into())
                 {
                     return;
                 }
@@ -516,15 +518,18 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 is_composing: false,
                 ..
             }) => {
-                if !self
-                    .driver
-                    .handle_named_keypress(&mut self.core, k, modifiers, cx)
-                {
+                if !self.driver.handle_named_keypress(
+                    &mut self.core,
+                    k,
+                    modifiers,
+                    (&mut *cx).into(),
+                ) {
                     return;
                 }
             },
             TextEvent::Ime(Ime::Commit(s)) => {
-                self.driver.handle_char_input(&mut self.core, s, M_NONE, cx);
+                self.driver
+                    .handle_char_input(&mut self.core, s, M_NONE, (&mut *cx).into());
             },
             _ => return,
         }
@@ -565,8 +570,7 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                     self.core.begin_node_drag(*pointer, state, cx);
                     cx.capture_pointer();
                 } else {
-                    self.core
-                        .cancel_node_drag(Some(pointer), || cx.request_render());
+                    self.core.cancel_node_drag(Some(pointer), cx);
                 }
             },
             PointerEvent::Move(u) => {
@@ -592,8 +596,8 @@ impl<N: Node + 'static> Widget for GraphEditor<N> {
                 self.core.complete_node_drag(pointer, state, cx);
             },
             PointerEvent::Cancel(i) => {
-                self.core.pan.cancel_drag(Some(i), cx);
-                self.core.cancel_node_drag(Some(i), || cx.request_render());
+                self.core.pan.cancel_drag(Some(i), &mut *cx);
+                self.core.cancel_node_drag(Some(i), &mut *cx);
             },
             PointerEvent::Scroll(PointerScrollEvent {
                 pointer: _,

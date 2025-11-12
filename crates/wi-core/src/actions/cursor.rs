@@ -1,6 +1,6 @@
 use super::prelude::*;
 use crate::{
-    AlignCell, Cursor, CursorUpdate, GraphWidgetCell, Port, Side, SidedPort, Step, WCursor,
+    traits::GraphWidgetCell, AlignCell, Cursor, CursorUpdate, Port, Side, SidedPort, Step, WCursor,
 };
 
 pub(super) mod actions {
@@ -100,11 +100,13 @@ fn move_cursor<W: CursorOps + ?Sized>(
     });
 
     if any {
-        cx.widget.update_cursor(
-            CursorUpdate::Move,
-            cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
-            cx.inner,
-        );
+        cx.run(|w, d, c| {
+            w.update_cursor(
+                CursorUpdate::Move,
+                d.cursor.as_ref().unwrap_or_else(|| unreachable!()),
+                c,
+            )
+        });
     }
 
     any
@@ -191,13 +193,15 @@ impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::StepCu
 }
 
 impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
-        cx.widget.update_cursor(
-            CursorUpdate::CenterInView,
-            cx.driver.cursor.as_ref().unwrap_or_else(|| unreachable!()),
-            cx.inner,
-        );
+        cx.run(|w, d, c| {
+            w.update_cursor(
+                CursorUpdate::CenterInView,
+                d.cursor.as_ref().unwrap_or_else(|| unreachable!()),
+                c,
+            )
+        });
         true
     }
 }

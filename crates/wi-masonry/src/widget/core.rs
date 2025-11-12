@@ -1,7 +1,7 @@
 use std::{mem, num::NonZeroIsize, sync::Arc};
 
 use masonry::{
-    core::{EventCtx, MutateCtx, PointerInfo, PointerState, WidgetPod},
+    core::{EventCtx, PointerInfo, PointerState, WidgetPod},
     dpi::PhysicalPosition,
     kurbo::{Affine, Point, Rect, Size, Vec2},
     widgets::Flex,
@@ -11,15 +11,16 @@ use petgraph::{
     visit::{IntoEdgeReferences, IntoNodeReferences},
 };
 use wi_core::{
-    prelude::*, Cursor, CursorUpdate, EdgeCursor, Port, Side, SidedPort, Status, Step, WCursor,
-    WEdgeCursor, WPort, WSidedPort, Yielded,
+    prelude::*, ContinueCx, Cursor, CursorUpdate, EdgeCursor, Port, Side, SidedPort, Status, Step,
+    WCursor, WEdgeCursor, WPort, WSidedPort, Yielded,
 };
 
 use super::{
     cell::Cell,
+    context::{AnyContext, Context},
     status::RenderedStatus,
     view::{Pan, Zoom},
-    GraphAction, GraphActionKind,
+    Change, GraphAction,
 };
 use crate::{
     drag::DragHandler,
@@ -63,12 +64,12 @@ impl<N: Node> EditorCore<N> {
         }
     }
 
-    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut MutateCtx) {
+    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut impl Context) {
         if Arc::ptr_eq(&self.graph, &graph) {
             return;
         }
 
-        self.cancel_node_drag(None, || ());
+        self.cancel_node_drag(None, &mut *cx);
         self.graph = graph;
         cx.request_render();
     }
@@ -84,11 +85,9 @@ impl<N: Node> EditorCore<N> {
             * Affine::scale_about(self.zoom.scale().recip(), (size.to_vec2() * 0.5).to_point())
     }
 
-    fn submit_action(&self, kind: GraphActionKind<N>, cx: &mut EventCtx) {
-        cx.submit_action::<GraphAction<N>>(GraphAction {
-            graph: Arc::clone(&self.graph),
-            kind,
-        });
+    #[inline]
+    fn change(&self, change: Change<N>) -> GraphAction<N> {
+        GraphAction::Changed(Arc::clone(&self.graph), change)
     }
 }
 
@@ -166,20 +165,16 @@ impl<N: Node> EditorCore<N> {
             Self::node_drag_delta(make_mut!(self.graph), &self.zoom, cx),
         );
 
-        self.submit_action(GraphActionKind::NodeMoved, cx);
+        cx.submit_action::<GraphAction<N>>(self.change(Change::NodeMoved));
     }
 
     #[inline]
-    pub fn cancel_node_drag(
-        &mut self,
-        pointer: Option<&PointerInfo>,
-        request_render: impl FnOnce(),
-    ) {
+    pub fn cancel_node_drag(&mut self, pointer: Option<&PointerInfo>, cx: &mut impl Context) {
         self.node_drag.cancel_drag(pointer, |&(n, p)| {
             let node = &mut make_mut!(self.graph)[n];
             let prev = mem::replace(&mut make_mut!(*node).position(), p);
             if prev != node.position() {
-                request_render();
+                cx.request_render();
             }
         });
     }
@@ -187,11 +182,17 @@ impl<N: Node> EditorCore<N> {
 
 impl<N: Node> GraphWidgetTypes for EditorCore<N> {
     type Cell = Cell<N>;
-    type Context<'a> = EventCtx<'a>;
+    type Context<'cx, 'widget: 'cx> = AnyContext<'cx, 'widget>;
     type NodeId = NodeIndex;
     type NodeKind = N::Prototype;
     type Point = Point;
     type PortId = u16;
+
+    fn reborrow_cx<'widget, 're>(
+        cx: &'re mut Self::Context<'_, 'widget>,
+    ) -> Self::Context<'re, 'widget> {
+        cx.reborrow()
+    }
 }
 
 impl<N: Node> CursorOps for EditorCore<N> {
@@ -381,7 +382,12 @@ impl<N: Node> CursorOps for EditorCore<N> {
                 }
     }
 
-    fn update_cursor(&mut self, update: CursorUpdate, cursor: &WCursor<Self>, cx: &mut EventCtx) {
+    fn update_cursor(
+        &mut self,
+        update: CursorUpdate,
+        cursor: &WCursor<Self>,
+        mut cx: Self::Context<'_, '_>,
+    ) {
         match update {
             CursorUpdate::Move => (),
             CursorUpdate::CenterInView => {
@@ -401,7 +407,12 @@ impl<N: Node> CursorOps for EditorCore<N> {
 }
 
 impl<N: Node> EdgeOps for EditorCore<N> {
-    fn delete_edge(&mut self, from: &WPort<Self>, to: &WPort<Self>, cx: &mut EventCtx) -> bool {
+    fn delete_edge(
+        &mut self,
+        from: &WPort<Self>,
+        to: &WPort<Self>,
+        mut cx: Self::Context<'_, '_>,
+    ) -> bool {
         let Some(e) = self
             .graph
             .edges_connecting(from.0, to.0)
@@ -414,40 +425,67 @@ impl<N: Node> EdgeOps for EditorCore<N> {
         let edge = make_mut!(self.graph)
             .remove_edge(e)
             .unwrap_or_else(|| unreachable!());
-        self.submit_action(GraphActionKind::EdgeDeleted(from.0, to.0, edge), cx);
+
+        cx.submit_action(self.change(Change::EdgeDeleted(from.0, to.0, edge)));
+        cx.request_render();
+
         true
     }
 }
 
 impl<N: Node> NodeOps for EditorCore<N> {
-    fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
-        &mut self,
-        then: Yielded<Self, Y, C>,
+    fn prompt_node_kind<'a, Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
+        &'a mut self,
+        then: Yielded<'a, '_, Self, Y, C>,
     ) {
-        then.resume_now(self, Some(N::PROTOTYPE));
+        if let Some(p) = N::override_prototype() {
+            then.resume_now(self, p.ok());
+        } else {
+            let (then, mut cx) = then.defer();
+            cx.submit_action(GraphAction::<N>::WantNodePrototype(Box::new(
+                |value, mut widget| {
+                    then.continue_once(
+                        value,
+                        ContinueCx::new_deferred(
+                            &mut widget.widget.core,
+                            &mut widget.widget.driver,
+                            (&mut widget.ctx).into(),
+                        ),
+                    );
+                },
+            )));
+        }
     }
 
-    fn create_node(&mut self, kind: Self::NodeKind, position: Self::Point, cx: &mut EventCtx) {
+    fn create_node(
+        &mut self,
+        kind: Self::NodeKind,
+        position: Self::Point,
+        mut cx: Self::Context<'_, '_>,
+    ) {
         make_mut!(self.graph).add_node(N::create(kind, position).into());
-        self.submit_action(GraphActionKind::NodeCreated, cx);
+
+        cx.submit_action(self.change(Change::NodeCreated));
         cx.request_render();
     }
 
-    fn delete_node(&mut self, &node: &Self::NodeId, cx: &mut EventCtx) -> bool {
+    fn delete_node(&mut self, &node: &Self::NodeId, mut cx: Self::Context<'_, '_>) -> bool {
         let Some(n) = make_mut!(self.graph).remove_node(node) else {
             return false;
         };
 
-        self.submit_action(GraphActionKind::NodeDeleted(n), cx);
+        cx.submit_action(self.change(Change::NodeDeleted(n)));
+        cx.request_render();
+
         true
     }
 }
 
 impl<N: Node> UiOps for EditorCore<N> {
-    fn update_status(&mut self, status: Status, cx: &mut EventCtx) {
+    fn update_status(&mut self, status: Status, mut cx: Self::Context<'_, '_>) {
         let rendered = RenderedStatus::new(status);
         cx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));
     }
 
-    fn quit(&mut self, cx: &mut EventCtx) { cx.exit(); }
+    fn quit(&mut self, mut cx: Self::Context<'_, '_>) { cx.exit(); }
 }

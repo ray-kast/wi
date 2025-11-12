@@ -2,7 +2,10 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use num_traits::Num;
 
-use crate::{AlignCell, Cursor, GraphWidgetCell, traits::GraphWidgetTypes, Port, Side, SidedPort, WCursor};
+use crate::{
+    traits::{GraphWidgetCell, GraphWidgetTypes},
+    AlignCell, Cursor, Port, Side, SidedPort, WCursor,
+};
 
 /// Implements several functions that enable the use of a euclidean [Cell]
 pub trait GraphEuclidean:

@@ -6,6 +6,7 @@ use masonry::{
     kurbo::{Point, Size, Vec2},
 };
 
+use super::context::Context;
 use crate::drag::DragHandler;
 
 const SCROLL_PAGE_LINES: f64 = 10.0;
@@ -92,7 +93,7 @@ impl Pan {
     }
 
     #[inline]
-    pub fn cancel_drag(&mut self, pointer: Option<&PointerInfo>, cx: &mut EventCtx) {
+    pub fn cancel_drag(&mut self, pointer: Option<&PointerInfo>, cx: &mut impl Context) {
         self.drag.cancel_drag(pointer, |&s| {
             let prev = mem::replace(&mut self.pan, s);
             if prev != self.pan {

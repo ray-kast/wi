@@ -3,7 +3,8 @@ use std::num::NonZeroU32;
 use crate::{
     actions::Action,
     mode::Mode,
-    operators::{CurrentOperator, Operator}, traits::{CursorOps, GraphWidgetTypes},
+    operators::{CurrentOperator, Operator},
+    traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes},
 };
 pub use crate::{
     actions::{ActionKind, MotionKind},
@@ -15,8 +16,7 @@ pub use crate::{
 };
 
 pub mod prelude {
-    pub use crate::traits::*;
-    pub use crate::continuation::ContinueOnce;
+    pub use crate::{continuation::ContinueOnce, traits::*};
 }
 
 pub extern crate shibari;
@@ -79,14 +79,6 @@ pub enum AlignCell {
 pub enum CursorUpdate {
     Move,
     CenterInView,
-}
-
-pub trait GraphWidgetCell<W: GraphWidgetTypes + ?Sized> {
-    fn of_cursor(widget: &W, cursor: &WCursor<W>) -> Self;
-
-    fn position(&self, widget: &W) -> W::Point;
-
-    fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell);
 }
 
 #[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]

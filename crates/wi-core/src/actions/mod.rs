@@ -53,10 +53,32 @@ mod imp {
     use super::prelude::*;
     use crate::{cursor::NullSelection, DriverInner};
 
-    pub struct ActionCx<'a, 'w, W: GraphWidgetTypes + ?Sized> {
+    pub struct ActionCx<'a, 'w: 'a, W: GraphWidgetTypes + ?Sized> {
         pub widget: &'a mut W,
         pub driver: &'a mut DriverInner<W>,
-        pub inner: &'a mut W::Context<'w>,
+        inner: W::Context<'a, 'w>,
+    }
+
+    impl<'a, 'w, W: GraphWidgetTypes + ?Sized> ActionCx<'a, 'w, W> {
+        pub const fn new(
+            widget: &'a mut W,
+            driver: &'a mut DriverInner<W>,
+            inner: W::Context<'a, 'w>,
+        ) -> Self {
+            Self {
+                widget,
+                driver,
+                inner,
+            }
+        }
+
+        #[inline]
+        pub fn run<T>(
+            &mut self,
+            f: impl FnOnce(&mut W, &mut DriverInner<W>, W::Context<'_, 'w>) -> T,
+        ) -> T {
+            f(self.widget, self.driver, W::reborrow_cx(&mut self.inner))
+        }
     }
 
     pub(crate) trait Kind<K: Copy + Eq + Hash> {

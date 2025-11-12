@@ -7,7 +7,8 @@ use crate::{
     bindings::{ActionOut, Key},
     continuation::Dispatch,
     operators::{EditorOperator, OperatorCx, OperatorResult},
-    traits::GraphWidget, GraphWidgetDriver,
+    traits::GraphWidget,
+    GraphWidgetDriver,
 };
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
@@ -15,11 +16,11 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
     fn mutate_check<T>(
         &mut self,
         widget: &mut W,
-        cx: &mut W::Context<'_>,
-        f: impl FnOnce(&mut Self, &mut W, &mut W::Context<'_>) -> T,
+        mut cx: W::Context<'_, '_>,
+        f: impl FnOnce(&mut Self, &mut W, W::Context<'_, '_>) -> T,
     ) -> T {
         let pre_status = self.status();
-        let res = f(self, widget, cx);
+        let res = f(self, widget, W::reborrow_cx(&mut cx));
 
         if pre_status != self.status() {
             widget.update_status(self.status(), cx);
@@ -42,13 +43,14 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         widget: &mut W,
         chars: &str,
         mods: Modifiers,
-        cx: &mut W::Context<'_>,
+        cx: W::Context<'_, '_>,
     ) -> bool {
-        self.mutate_check(widget, cx, |me, widget, cx| {
+        self.mutate_check(widget, cx, |me, widget, mut cx| {
             let mut any_handled = false;
 
             for char in chars.to_lowercase().chars() {
-                any_handled |= me.handle_key(widget, Key::Char(char, mods), cx);
+                any_handled |=
+                    me.handle_key(widget, Key::Char(char, mods), W::reborrow_cx(&mut cx));
             }
 
             any_handled
@@ -69,19 +71,24 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         widget: &mut W,
         key: K,
         mods: Modifiers,
-        cx: &mut W::Context<'_>,
+        cx: W::Context<'_, '_>,
     ) -> bool {
         self.mutate_check(widget, cx, |me, widget, cx| {
             me.handle_key(widget, Key::Named(key, mods), cx)
         })
     }
 
-    fn handle_key(&mut self, widget: &mut W, key: Key, cx: &mut W::Context<'_>) -> bool {
+    fn handle_key(&mut self, widget: &mut W, key: Key, mut cx: W::Context<'_, '_>) -> bool {
         if let Some(ref mut operator) = self.current_operator.as_mut() {
             let mut res = OperatorResult::Continue;
             operator.step(
                 key,
-                OperatorCx::new(widget, &mut self.inner, cx, Dispatch::Immediate(&mut res)),
+                OperatorCx::new(
+                    widget,
+                    &mut self.inner,
+                    W::reborrow_cx(&mut cx),
+                    Dispatch::Immediate(&mut res),
+                ),
             );
 
             return match res {
@@ -113,11 +120,10 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                     count = self.inner.count,
                     "Processing action"
                 );
-                let handled = action.process(self.inner.count.take(), ActionCx {
-                    widget,
-                    driver: &mut self.inner,
-                    inner: cx,
-                });
+                let handled = action.process(
+                    self.inner.count.take(),
+                    ActionCx::new(widget, &mut self.inner, W::reborrow_cx(&mut cx)),
+                );
 
                 if handled && !action.kind().is_silent() {
                     self.inner.last_action = Some(action.into());
@@ -130,7 +136,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 operator.init(OperatorCx::new(
                     widget,
                     &mut self.inner,
-                    cx,
+                    W::reborrow_cx(&mut cx),
                     Dispatch::Immediate(&mut res),
                 ));
 

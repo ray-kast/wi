@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use wi_masonry::{
-    graph::Checked,
-    widget::{GraphAction, GraphActionKind},
-};
+use wi_masonry::{graph::Checked, widget::GraphAction};
 use xilem::{
     core::{MessageResult, View, ViewMarker},
     Pod, ViewCtx,
@@ -15,12 +12,12 @@ use crate::{
 };
 
 type Callback<N, State, Action> =
-    Box<dyn Fn(&mut State, Checked<Graph<N>>, GraphActionKind<N>) -> Action + Send + Sync>;
+    Box<dyn Fn(&mut State, GraphAction<N, Checked<Graph<N>>>) -> Action + Send + Sync>;
 pub fn graph_editor<
-    N,
+    N: Node,
     State,
     Action,
-    F: Fn(&mut State, Checked<Graph<N>>, GraphActionKind<N>) -> Action + Send + Sync + 'static,
+    F: Fn(&mut State, GraphAction<N, Checked<Graph<N>>>) -> Action + Send + Sync + 'static,
 >(
     graph: Checked<Graph<N>>,
     on_action: F,
@@ -33,7 +30,7 @@ pub fn graph_editor<
 
 #[must_use]
 #[expect(missing_debug_implementations)]
-pub struct GraphEditor<N, State, Action> {
+pub struct GraphEditor<N: Node, State, Action> {
     pub(super) graph: Arc<Graph<N>>,
     on_action: Callback<N, State, Action>,
 }
@@ -87,16 +84,18 @@ impl<N: Node + 'static, State: 'static, Action: 'static> View<State, Action, Vie
         _element: xilem::core::Mut<'_, Self::Element>,
         app_state: &mut State,
     ) -> MessageResult<Action> {
-        let Some(a) = message.take_message::<GraphAction<N>>() else {
+        let Some(action) = message.take_message::<GraphAction<N>>() else {
             tracing::error!(?message, "Wrong message type in GraphEditor::message");
             return MessageResult::Stale;
         };
-        let GraphAction { graph, kind } = *a;
 
-        MessageResult::Action((self.on_action)(
-            app_state,
-            unsafe { Checked::new_unchecked(graph) },
-            kind,
-        ))
+        let action = match *action {
+            GraphAction::Changed(g, c) => {
+                GraphAction::Changed(unsafe { Checked::new_unchecked(g) }, c)
+            },
+            GraphAction::WantNodePrototype(f) => GraphAction::WantNodePrototype(f),
+        };
+
+        MessageResult::Action((self.on_action)(app_state, action))
     }
 }

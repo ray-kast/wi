@@ -10,22 +10,22 @@ pub enum Dispatch<I, D> {
     Deferred(D),
 }
 
-type ContinueDispatch<'a, Y> = Dispatch<Y, &'a mut CurrentOperator>;
+type ContinueDispatch<'c, Y> = Dispatch<Y, &'c mut CurrentOperator>;
 
 #[derive_where::derive_where(Debug;
-    W, W::Context<'w>, W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind, Y)]
-pub struct ContinueCx<'a, 'w, W: GraphWidgetTypes + ?Sized, Y> {
+    W, W::Context<'a, 'w>, W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind, Y)]
+pub struct ContinueCx<'a, 'c, 'w: 'a, W: GraphWidgetTypes + ?Sized, Y> {
     widget: &'a mut W,
     driver: &'a mut DriverInner<W>,
-    dispatch: ContinueDispatch<'a, Y>,
-    inner: &'a mut W::Context<'w>,
+    dispatch: ContinueDispatch<'c, Y>,
+    inner: W::Context<'a, 'w>,
 }
 
-impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'w, W, Y> {
+impl<'a: 'c, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, Y> {
     pub const fn new_deferred(
         widget: &'a mut W,
         driver: &'a mut GraphWidgetDriver<W>,
-        inner: &'a mut W::Context<'w>,
+        inner: W::Context<'a, 'w>,
     ) -> Self {
         Self {
             widget,
@@ -36,7 +36,7 @@ impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'w, W, Y> {
     }
 }
 
-impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'w, W, OpYielded<'a, 'c, Y>> {
+impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, OpYielded<'a, 'c, Y>> {
     pub(crate) fn into_op_cx(self) -> (Option<Y>, crate::operators::OperatorCx<'a, 'c, 'w, W>) {
         let (caller, dispatch) = match self.dispatch {
             Dispatch::Immediate((d, y)) => (Some(y), d),
@@ -50,7 +50,7 @@ impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'w, W, OpYielde
     }
 }
 
-pub trait ContinueOnce<W: GraphWidgetTypes + ?Sized, Y, T> {
+pub trait ContinueOnce<W: GraphWidgetTypes + ?Sized, Y, T>: Send + Sync + 'static {
     fn continue_once(self, value: T, cx: ContinueCx<W, Y>);
 }
 
@@ -58,9 +58,9 @@ pub trait ContinueOnce<W: GraphWidgetTypes + ?Sized, Y, T> {
     missing_debug_implementations,
     reason = "This is usually going to be paramaterized"
 )]
-pub struct Yielded<'a, 'w, W: GraphWidgetTypes + ?Sized, Y, C> {
+pub struct Yielded<'a, 'w: 'a, W: GraphWidgetTypes + ?Sized, Y, C> {
     driver: &'a mut DriverInner<W>,
-    cx: &'a mut W::Context<'w>,
+    cx: W::Context<'a, 'w>,
     caller: Y,
     then: C,
 }
@@ -70,7 +70,7 @@ impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y, C> Yielded<'a, 'w, W, Y, C> {
         then: C,
         driver: &'a mut DriverInner<W>,
         caller: Y,
-        cx: &'a mut W::Context<'w>,
+        cx: W::Context<'a, 'w>,
     ) -> Self {
         Self {
             driver,
@@ -81,21 +81,21 @@ impl<'a, 'w, W: GraphWidgetTypes + ?Sized, Y, C> Yielded<'a, 'w, W, Y, C> {
     }
 
     #[inline]
-    pub fn cx(&mut self) -> &mut W::Context<'w> { self.cx }
+    pub fn cx(&mut self) -> W::Context<'_, 'w> { W::reborrow_cx(&mut self.cx) }
 
     #[inline]
-    pub fn resume_now<T>(self, widget: &'a mut W, value: T) -> &'a mut W::Context<'w>
+    pub fn resume_now<T>(mut self, widget: &'a mut W, value: T) -> W::Context<'a, 'w>
     where C: ContinueOnce<W, Y, T> {
         self.then.continue_once(value, ContinueCx {
             widget,
             driver: self.driver,
             dispatch: Dispatch::Immediate(self.caller),
-            inner: self.cx,
+            inner: W::reborrow_cx(&mut self.cx),
         });
 
         self.cx
     }
 
     #[inline]
-    pub fn defer(self) -> C { self.then }
+    pub fn defer(self) -> (C, W::Context<'a, 'w>) { (self.then, self.cx) }
 }

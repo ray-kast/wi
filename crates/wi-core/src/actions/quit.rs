@@ -9,10 +9,10 @@ pub(super) mod actions {
 }
 
 impl<W: UiOps + ?Sized> EditorAction<W> for actions::Quit {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
-        cx.widget.quit(cx.inner);
+        cx.run(|w, _, c| w.quit(c));
 
         true
     }

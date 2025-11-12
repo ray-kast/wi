@@ -1,9 +1,17 @@
 use std::num::NonZeroIsize;
 
 use crate::{
-    ContinueOnce, CursorUpdate, GraphWidgetCell, Side, Status, Step, WCursor, WEdgeCursor, WPort,
+    AlignCell, ContinueOnce, CursorUpdate, Side, Status, Step, WCursor, WEdgeCursor, WPort,
     WSidedPort, Yielded,
 };
+
+pub trait GraphWidgetCell<W: GraphWidgetTypes + ?Sized> {
+    fn of_cursor(widget: &W, cursor: &WCursor<W>) -> Self;
+
+    fn position(&self, widget: &W) -> W::Point;
+
+    fn align_to_cursor(&mut self, widget: &W, cursor: &WCursor<W>, align: AlignCell);
+}
 
 // TODO: drop references for types that are Copy
 
@@ -14,9 +22,13 @@ pub trait GraphWidgetTypes {
     type Cell: GraphWidgetCell<Self>;
     type Point: Copy;
 
-    type Context<'a>;
+    type Context<'cx, 'widget: 'cx>;
 
     type NodeKind;
+
+    fn reborrow_cx<'widget, 're>(
+        cx: &'re mut Self::Context<'_, 'widget>,
+    ) -> Self::Context<'re, 'widget>;
 }
 
 pub trait GraphWidget: GraphWidgetTypes + CursorOps + EdgeOps + NodeOps + UiOps {}
@@ -77,7 +89,7 @@ pub trait CursorOps: GraphWidgetTypes {
         &mut self,
         update: CursorUpdate,
         cursor: &WCursor<Self>,
-        cx: &mut Self::Context<'_>,
+        cx: Self::Context<'_, '_>,
     );
 }
 
@@ -86,28 +98,28 @@ pub trait EdgeOps: GraphWidgetTypes {
         &mut self,
         from: &WPort<Self>,
         to: &WPort<Self>,
-        cx: &mut Self::Context<'_>,
+        cx: Self::Context<'_, '_>,
     ) -> bool;
 }
 
 pub trait NodeOps: GraphWidgetTypes {
-    fn prompt_node_kind<Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
-        &mut self,
-        then: Yielded<Self, Y, C>,
+    fn prompt_node_kind<'a, Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
+        &'a mut self,
+        then: Yielded<'a, '_, Self, Y, C>,
     );
 
     fn create_node(
         &mut self,
         kind: Self::NodeKind,
         position: Self::Point,
-        cx: &mut Self::Context<'_>,
+        cx: Self::Context<'_, '_>,
     );
 
-    fn delete_node(&mut self, node: &Self::NodeId, cx: &mut Self::Context<'_>) -> bool;
+    fn delete_node(&mut self, node: &Self::NodeId, cx: Self::Context<'_, '_>) -> bool;
 }
 
 pub trait UiOps: GraphWidgetTypes {
-    fn update_status(&mut self, status: Status, cx: &mut Self::Context<'_>);
+    fn update_status(&mut self, status: Status, cx: Self::Context<'_, '_>);
 
-    fn quit(&mut self, cx: &mut Self::Context<'_>);
+    fn quit(&mut self, cx: Self::Context<'_, '_>);
 }

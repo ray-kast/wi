@@ -2,6 +2,7 @@ use masonry::kurbo::Point;
 use wi_xilem::{
     graph::{Checked, Edge, Graph, NodeStyle, Port},
     view::graph_editor,
+    widget::GraphAction,
 };
 use xilem::{
     view::{flex_col, FlexExt},
@@ -23,8 +24,6 @@ impl wi_xilem::graph::Node for Node {
     type PortShape = ();
     type Prototype = ();
     type Widget = ();
-
-    const PROTOTYPE: Self::Prototype = ();
 
     fn create((): Self::Prototype, position: Point) -> Self {
         Self {
@@ -89,12 +88,14 @@ struct State {
 }
 
 fn app_logic(state: &mut State) -> impl WidgetView<State> + use<> {
-    flex_col((
-        graph_editor(state.graph.clone(), |state: &mut State, graph, _| {
-            state.graph = graph;
-        })
-        .flex(1.0),
-    ))
+    flex_col((graph_editor(
+        state.graph.clone(),
+        |state: &mut State, action| match action {
+            GraphAction::Changed(g, _) => state.graph = g,
+            GraphAction::WantNodePrototype(f) => f(None, todo!()),
+        },
+    )
+    .flex(1.0),))
 }
 
 fn main() {

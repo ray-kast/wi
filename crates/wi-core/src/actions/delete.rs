@@ -1,6 +1,6 @@
 use super::prelude::*;
 use crate::{
-    AlignCell, Cursor, EdgeCursor, GraphWidgetCell, Port, Side, SidedPort, WCursor, WPort,
+    traits::GraphWidgetCell, AlignCell, Cursor, EdgeCursor, Port, Side, SidedPort, WCursor, WPort,
 };
 
 pub(super) mod actions {
@@ -69,41 +69,42 @@ fn fixup_cursor<W: CursorOps + ?Sized>(
 }
 
 impl<W: CursorOps + EdgeOps + NodeOps + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
-        let cursor = cx.driver.cursor.as_mut().unwrap_or_else(|| unreachable!());
-        let cell = &mut cx.driver.cell;
-        let fixed = fixup_cursor(
-            cx.widget,
-            cursor,
-            cell,
-            |n| matches!(&*cursor, Cursor::Node(m) if n == *m),
-            |f, t| matches!(&*cursor, Cursor::Edge(e) if e.from == f && e.to == t),
-        );
-        let changed = match cursor {
-            crate::Cursor::Node(n) => cx.widget.delete_node(n, cx.inner),
-            crate::Cursor::Edge(EdgeCursor {
-                from,
-                to,
-                anchor: _,
-            }) => cx.widget.delete_edge(from, to, cx.inner),
-            crate::Cursor::Port(_) | crate::Cursor::FixedPoint(_) => false,
-        };
+        cx.run(|widget, driver, mut cx| {
+            let cursor = driver.cursor.as_mut().unwrap_or_else(|| unreachable!());
+            let cell = &mut driver.cell;
+            let fixed = fixup_cursor(
+                widget,
+                cursor,
+                cell,
+                |n| matches!(&*cursor, Cursor::Node(m) if n == *m),
+                |f, t| matches!(&*cursor, Cursor::Edge(e) if e.from == f && e.to == t),
+            );
+            let changed = match cursor {
+                crate::Cursor::Node(n) => widget.delete_node(n, W::reborrow_cx(&mut cx)),
+                crate::Cursor::Edge(EdgeCursor {
+                    from,
+                    to,
+                    anchor: _,
+                }) => widget.delete_edge(from, to, W::reborrow_cx(&mut cx)),
+                crate::Cursor::Port(_) | crate::Cursor::FixedPoint(_) => false,
+            };
 
-        if !changed {
-            return false;
-        }
+            if !changed {
+                return false;
+            }
 
-        if let Some(fixed) = fixed {
-            *cursor = fixed;
+            if let Some(fixed) = fixed {
+                *cursor = fixed;
 
-            cell.align_to_cursor(cx.widget, cursor, AlignCell::Overwrite);
+                cell.align_to_cursor(widget, cursor, AlignCell::Overwrite);
 
-            cx.widget
-                .update_cursor(crate::CursorUpdate::Move, cursor, cx.inner);
-        }
+                widget.update_cursor(crate::CursorUpdate::Move, cursor, cx);
+            }
 
-        true
+            true
+        })
     }
 }

@@ -63,13 +63,13 @@ mod imp {
         }
     }
 
-    pub type OpDispatch<'a, 'c> = Dispatch<&'c mut OperatorResult, &'a mut CurrentOperator>;
+    pub type OpDispatch<'a, 'c> = Dispatch<&'c mut OperatorResult, &'c mut CurrentOperator>;
     pub type OpYielded<'a, 'c, Y> = (OpDispatch<'a, 'c>, Y);
 
-    pub struct OperatorCx<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized> {
+    pub struct OperatorCx<'a, 'c, 'w: 'a, W: GraphWidgetTypes + ?Sized> {
         widget: &'a mut W,
         driver: &'a mut DriverInner<W>,
-        inner: &'a mut W::Context<'w>,
+        inner: W::Context<'a, 'w>,
         dispatch: OpDispatch<'a, 'c>,
     }
 
@@ -77,7 +77,7 @@ mod imp {
         pub const fn new(
             widget: &'a mut W,
             driver: &'a mut DriverInner<W>,
-            inner: &'a mut W::Context<'w>,
+            inner: W::Context<'a, 'w>,
             dispatch: OpDispatch<'a, 'c>,
         ) -> Self {
             Self {
@@ -98,7 +98,7 @@ mod imp {
         pub const fn dispatch(&self) -> &OpDispatch<'a, 'c> { &self.dispatch }
 
         #[inline]
-        pub const fn into_yielded<Y, C>(
+        pub fn into_yielded<Y, C>(
             self,
             then: C,
             yielded: Y,
@@ -114,11 +114,10 @@ mod imp {
             action: A,
             count: Option<NonZeroU32>,
         ) -> bool {
-            action.process(count, ActionCx {
-                widget: self.widget,
-                driver: self.driver,
-                inner: self.inner,
-            })
+            action.process(
+                count,
+                ActionCx::new(self.widget, self.driver, W::reborrow_cx(&mut self.inner)),
+            )
         }
 
         #[inline]

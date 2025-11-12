@@ -11,7 +11,7 @@ pub trait Node: fmt::Debug + Clone + Send + Sync + 'static {
     type Widget;
     type PortShape;
 
-    const PROTOTYPE: Self::Prototype;
+    fn override_prototype() -> Option<Result<Self::Prototype, ()>> { None }
 
     fn create(proto: Self::Prototype, position: Point) -> Self;
 
