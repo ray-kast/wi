@@ -1,6 +1,6 @@
 use crate::{
     operators::{CurrentOperator, OpYielded},
-    traits::GraphWidgetTypes,
+    traits::{GraphWidgetTypes, UiOps},
     DriverInner, GraphWidgetDriver,
 };
 
@@ -36,17 +36,36 @@ impl<'a: 'c, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, 
     }
 }
 
-impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, OpYielded<'a, 'c, Y>> {
-    pub(crate) fn into_op_cx(self) -> (Option<Y>, crate::operators::OperatorCx<'a, 'c, 'w, W>) {
-        let (caller, dispatch) = match self.dispatch {
-            Dispatch::Immediate((d, y)) => (Some(y), d),
-            Dispatch::Deferred(c) => (None, Dispatch::Deferred(c)),
-        };
-
-        (
-            caller,
-            crate::operators::OperatorCx::new(self.widget, self.driver, self.inner, dispatch),
-        )
+impl<'a, 'c, 'w, W: UiOps + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, OpYielded<'a, 'c, Y>> {
+    pub(crate) fn run_op<
+        F: FnOnce(Option<Y>, crate::operators::OperatorCx<'_, '_, 'w, W>) -> T,
+        T,
+    >(
+        self,
+        f: F,
+    ) -> T {
+        match self.dispatch {
+            Dispatch::Immediate((dispatch, caller)) => f(
+                Some(caller),
+                crate::operators::OperatorCx::new(self.widget, self.driver, self.inner, dispatch),
+            ),
+            Dispatch::Deferred(dispatch) => self.driver.mutate_check(
+                dispatch,
+                self.widget,
+                self.inner,
+                |driver, dispatch, widget, inner| {
+                    f(
+                        None,
+                        crate::operators::OperatorCx::new(
+                            widget,
+                            driver,
+                            inner,
+                            Dispatch::Deferred(dispatch),
+                        ),
+                    )
+                },
+            ),
+        }
     }
 }
 

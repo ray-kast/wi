@@ -3451,6 +3451,7 @@ name = "wi-xilem"
 version = "0.0.0"
 dependencies = [
  "petgraph",
+ "spin",
  "tracing",
  "wi-masonry",
  "xilem",

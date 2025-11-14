@@ -4,7 +4,7 @@ use crate::{
     actions::Action,
     mode::Mode,
     operators::{CurrentOperator, Operator},
-    traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes},
+    traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes, UiOps},
 };
 pub use crate::{
     actions::{ActionKind, MotionKind},
@@ -122,6 +122,19 @@ impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
     }
 }
 
+impl<W: UiOps + ?Sized> GraphWidgetDriver<W> {
+    #[inline]
+    fn mutate_check<'w, T>(
+        &mut self,
+        widget: &mut W,
+        cx: W::Context<'_, 'w>,
+        f: impl FnOnce(&mut DriverInner<W>, &mut CurrentOperator, &mut W, W::Context<'_, 'w>) -> T,
+    ) -> T {
+        self.inner
+            .mutate_check(&mut self.current_operator, widget, cx, f)
+    }
+}
+
 impl<W: GraphWidgetTypes + ?Sized> GraphWidgetDriver<W> {
     #[inline]
     pub fn cursor(&self) -> &WCursor<W> {
@@ -133,4 +146,30 @@ impl<W: GraphWidgetTypes + ?Sized> GraphWidgetDriver<W> {
 
     #[inline]
     pub fn view_debug(&self) -> bool { self.inner.debug }
+}
+
+impl<W: UiOps + ?Sized> DriverInner<W> {
+    #[inline]
+    fn mutate_check<'w, T>(
+        &mut self,
+        current_operator: &mut CurrentOperator,
+        widget: &mut W,
+        mut cx: W::Context<'_, 'w>,
+        f: impl for<'a> FnOnce(
+            &'a mut Self,
+            &'a mut CurrentOperator,
+            &'a mut W,
+            W::Context<'a, 'w>,
+        ) -> T,
+    ) -> T {
+        let pre_status = self.status(current_operator);
+        let res = f(self, current_operator, widget, W::reborrow_cx(&mut cx));
+
+        let post_status = self.status(current_operator);
+        if pre_status != post_status {
+            widget.update_status(post_status, cx);
+        }
+
+        res
+    }
 }

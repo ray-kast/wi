@@ -5,9 +5,9 @@ use shibari::Acceptor;
 use crate::{
     actions::{Action, ActionKind},
     mode::ModeKind,
-    operators::{Operator, OperatorKind},
+    operators::{CurrentOperator, Operator, OperatorKind},
     traits::GraphWidgetTypes,
-    GraphWidgetDriver,
+    DriverInner, GraphWidgetDriver,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -21,14 +21,19 @@ pub struct Status {
 }
 
 impl<W: GraphWidgetTypes + ?Sized> GraphWidgetDriver<W> {
-    pub fn status(&self) -> Status {
+    #[inline]
+    pub fn status(&self) -> Status { self.inner.status(&self.current_operator) }
+}
+
+impl<W: GraphWidgetTypes + ?Sized> DriverInner<W> {
+    pub fn status(&self, current_operator: &CurrentOperator) -> Status {
         Status {
-            count: self.inner.count.map(NonZero::get),
-            mode: self.inner.mode.kind(),
-            last_action: self.inner.last_action.as_ref().map(Action::kind),
-            current_operator: self.current_operator.as_ref().map(Operator::kind),
-            pending_op: self.inner.mode.pending_op(),
-            debug: self.inner.debug,
+            count: self.count.map(NonZero::get),
+            mode: self.mode.kind(),
+            last_action: self.last_action.as_ref().map(Action::kind),
+            current_operator: current_operator.as_ref().map(Operator::kind),
+            pending_op: self.mode.pending_op(),
+            debug: self.debug,
         }
     }
 }

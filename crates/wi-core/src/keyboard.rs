@@ -6,29 +6,12 @@ use crate::{
     actions::{ActionCx, EditorAction, Kind},
     bindings::{ActionOut, Key},
     continuation::Dispatch,
-    operators::{EditorOperator, OperatorCx, OperatorResult},
+    operators::{CurrentOperator, EditorOperator, OperatorCx, OperatorResult},
     traits::GraphWidget,
-    GraphWidgetDriver,
+    DriverInner, GraphWidgetDriver,
 };
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
-    #[inline]
-    fn mutate_check<T>(
-        &mut self,
-        widget: &mut W,
-        mut cx: W::Context<'_, '_>,
-        f: impl FnOnce(&mut Self, &mut W, W::Context<'_, '_>) -> T,
-    ) -> T {
-        let pre_status = self.status();
-        let res = f(self, widget, W::reborrow_cx(&mut cx));
-
-        if pre_status != self.status() {
-            widget.update_status(self.status(), cx);
-        }
-
-        res
-    }
-
     #[instrument(
         skip(self, widget, cx),
         fields(
@@ -45,12 +28,16 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         mods: Modifiers,
         cx: W::Context<'_, '_>,
     ) -> bool {
-        self.mutate_check(widget, cx, |me, widget, mut cx| {
+        self.mutate_check(widget, cx, |inner, curr_op, widget, mut cx| {
             let mut any_handled = false;
 
             for char in chars.to_lowercase().chars() {
-                any_handled |=
-                    me.handle_key(widget, Key::Char(char, mods), W::reborrow_cx(&mut cx));
+                any_handled |= inner.handle_key(
+                    curr_op,
+                    widget,
+                    Key::Char(char, mods),
+                    W::reborrow_cx(&mut cx),
+                );
             }
 
             any_handled
@@ -73,19 +60,27 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         mods: Modifiers,
         cx: W::Context<'_, '_>,
     ) -> bool {
-        self.mutate_check(widget, cx, |me, widget, cx| {
-            me.handle_key(widget, Key::Named(key, mods), cx)
+        self.mutate_check(widget, cx, |inner, curr_op, widget, cx| {
+            inner.handle_key(curr_op, widget, Key::Named(key, mods), cx)
         })
     }
+}
 
-    fn handle_key(&mut self, widget: &mut W, key: Key, mut cx: W::Context<'_, '_>) -> bool {
-        if let Some(ref mut operator) = self.current_operator.as_mut() {
+impl<W: GraphWidget + ?Sized> DriverInner<W> {
+    fn handle_key(
+        &mut self,
+        current_operator: &mut CurrentOperator,
+        widget: &mut W,
+        key: Key,
+        mut cx: W::Context<'_, '_>,
+    ) -> bool {
+        if let Some(ref mut operator) = current_operator.as_mut() {
             let mut res = OperatorResult::Continue;
             operator.step(
                 key,
                 OperatorCx::new(
                     widget,
-                    &mut self.inner,
+                    self,
                     W::reborrow_cx(&mut cx),
                     Dispatch::Immediate(&mut res),
                 ),
@@ -94,39 +89,39 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
             return match res {
                 OperatorResult::Continue => true,
                 OperatorResult::Finish => {
-                    self.current_operator
-                        .pop(&mut self.inner.stashed_operators)
+                    current_operator
+                        .pop(&mut self.stashed_operators)
                         .unwrap_or_else(|| unreachable!());
                     true
                 },
                 OperatorResult::Abort => {
-                    self.current_operator
-                        .pop(&mut self.inner.stashed_operators)
+                    current_operator
+                        .pop(&mut self.stashed_operators)
                         .unwrap_or_else(|| unreachable!());
                     false
                 },
             };
         }
 
-        match self.inner.mode.accept(key) {
+        match self.mode.accept(key) {
             ActionOut::Trap => {
-                self.inner.count = None;
+                self.count = None;
                 false
             },
             ActionOut::Advance => true,
             ActionOut::Action(action) => {
                 debug!(
                     action = action.kind().name(),
-                    count = self.inner.count,
+                    count = self.count,
                     "Processing action"
                 );
                 let handled = action.process(
-                    self.inner.count.take(),
-                    ActionCx::new(widget, &mut self.inner, W::reborrow_cx(&mut cx)),
+                    self.count.take(),
+                    ActionCx::new(widget, self, W::reborrow_cx(&mut cx)),
                 );
 
                 if handled && !action.kind().is_silent() {
-                    self.inner.last_action = Some(action.into());
+                    self.last_action = Some(action.into());
                 }
 
                 handled
@@ -135,7 +130,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 let mut res = OperatorResult::Continue;
                 operator.init(OperatorCx::new(
                     widget,
-                    &mut self.inner,
+                    self,
                     W::reborrow_cx(&mut cx),
                     Dispatch::Immediate(&mut res),
                 ));
@@ -143,8 +138,7 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
                 match res {
                     OperatorResult::Continue => {
                         debug!(operator = operator.kind().name(), "Pushing operator");
-                        self.current_operator
-                            .push(operator, &mut self.inner.stashed_operators);
+                        current_operator.push(operator, &mut self.stashed_operators);
 
                         true
                     },

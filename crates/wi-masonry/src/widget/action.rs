@@ -3,16 +3,16 @@ use std::{fmt, sync::Arc};
 use masonry::core::WidgetMut;
 use petgraph::graph::NodeIndex;
 
-use crate::graph::{Edge, Graph, Node};
+use crate::graph::{Checked, Edge, Graph, Node};
 
 pub type PrototypeCallback<N> =
     Box<dyn FnOnce(Option<<N as Node>::Prototype>, WidgetMut<super::GraphEditor<N>>) + Send + Sync>;
-pub enum GraphAction<N: Node, G = Arc<Graph<N>>> {
-    Changed(G, Change<N>),
+pub enum GraphAction<N: Node> {
+    Changed(Checked<Graph<N>>, Change<N>),
     WantNodePrototype(PrototypeCallback<N>),
 }
 
-impl<N: fmt::Debug + Node, G: fmt::Debug> fmt::Debug for GraphAction<N, G> {
+impl<N: fmt::Debug + Node> fmt::Debug for GraphAction<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Changed(g, c) => f.debug_tuple("Changed").field(g).field(c).finish(),

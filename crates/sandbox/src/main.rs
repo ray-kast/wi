@@ -1,11 +1,10 @@
 use masonry::kurbo::Point;
 use wi_xilem::{
     graph::{Checked, Edge, Graph, NodeStyle, Port},
-    view::graph_editor,
-    widget::GraphAction,
+    view::{graph_editor, graph_editor_modals},
 };
 use xilem::{
-    view::{flex_col, FlexExt},
+    view::{button, flex_col, label, FlexExt},
     winit::dpi::LogicalSize,
     EventLoop, WidgetView, WindowOptions, Xilem,
 };
@@ -87,15 +86,18 @@ struct State {
     graph: Checked<Graph<Node>>,
 }
 
-fn app_logic(state: &mut State) -> impl WidgetView<State> + use<> {
-    flex_col((graph_editor(
-        state.graph.clone(),
-        |state: &mut State, action| match action {
-            GraphAction::Changed(g, _) => state.graph = g,
-            GraphAction::WantNodePrototype(f) => f(None, todo!()),
-        },
-    )
-    .flex(1.0),))
+fn app_logic(_: &mut State) -> impl WidgetView<State> + use<> {
+    graph_editor_modals(|state: &mut State, params, mut modal| {
+        flex_col((
+            modal
+                .want_node_prototype()
+                .map(|m| button(label("hi!"), move |_| m.respond(Some(())))),
+            graph_editor(state.graph.clone(), params, |s: &mut State, g, _| {
+                s.graph = g;
+            })
+            .flex(1.0),
+        ))
+    })
 }
 
 fn main() {

@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
     drag::DragHandler,
-    graph::{Edge, Graph, Node},
+    graph::{Checked, Edge, Graph, Node},
     widget::node::NodeExt,
 };
 
@@ -64,14 +64,16 @@ impl<N: Node> EditorCore<N> {
         }
     }
 
-    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut impl Context) {
+    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut impl Context) -> bool {
         if Arc::ptr_eq(&self.graph, &graph) {
-            return;
+            return false;
         }
 
         self.cancel_node_drag(None, &mut *cx);
         self.graph = graph;
         cx.request_render();
+
+        true
     }
 
     #[inline]
@@ -87,7 +89,15 @@ impl<N: Node> EditorCore<N> {
 
     #[inline]
     fn change(&self, change: Change<N>) -> GraphAction<N> {
-        GraphAction::Changed(Arc::clone(&self.graph), change)
+        let graph = Arc::clone(&self.graph);
+        GraphAction::Changed(
+            if cfg!(debug_assertions) {
+                Checked::new(graph)
+            } else {
+                unsafe { Checked::new_unchecked(graph) }
+            },
+            change,
+        )
     }
 }
 

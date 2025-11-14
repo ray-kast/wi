@@ -14,7 +14,7 @@ proc-macro = true
 indexmap.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
-spin = { version = "0.10.0", default-features = false, features = ["once", "spin_mutex"] }
+spin.workspace = true
 syn.workspace = true
 
 [lints]

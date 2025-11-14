@@ -58,8 +58,8 @@ impl<N: Node> GraphEditor<N> {
     }
 
     #[inline]
-    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut MutateCtx) {
-        self.core.set_graph(graph, cx);
+    pub fn set_graph(&mut self, graph: Arc<Graph<N>>, cx: &mut MutateCtx) -> bool {
+        self.core.set_graph(graph, cx)
         // TODO: fixup cursor and pan/zoom
     }
 

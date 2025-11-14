@@ -23,7 +23,7 @@ enum CreateInner {
     Yielded(Arc<Shared>),
 }
 
-impl<W: NodeOps + ?Sized> OperatorInner<W> for CreateInner {
+impl<W: NodeOps + UiOps + ?Sized> OperatorInner<W> for CreateInner {
     fn new(cx: OperatorCx<W>) -> Self { Self::Init(CreateOpAccept::default()) }
 
     fn step(&mut self, key: Key, mut cx: OperatorCx<W>) {
@@ -56,7 +56,7 @@ impl<W: NodeOps + ?Sized> OperatorInner<W> for CreateInner {
 
 struct CreateWithType(Arc<Shared>);
 
-impl<W: NodeOps + ?Sized>
+impl<W: NodeOps + UiOps + ?Sized>
     ContinueOnce<W, OpYielded<'_, '_, &'_ mut CreateInner>, Option<W::NodeKind>>
     for CreateWithType
 {
@@ -65,34 +65,34 @@ impl<W: NodeOps + ?Sized>
         kind: Option<W::NodeKind>,
         cx: ContinueCx<W, OpYielded<&mut CreateInner>>,
     ) {
-        let (inner, mut cx) = cx.into_op_cx();
+        cx.run_op(|inner, mut cx| {
+            let inner = match (inner, cx.dispatch()) {
+                (Some(i), Dispatch::Immediate(_)) => Some(&*i),
+                (None, Dispatch::Deferred(o)) => o.as_ref().and_then(|o| {
+                    if let Operator::Create(operators::Create(Some(i))) = o {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                }),
+                _ => unreachable!(),
+            };
 
-        let inner = match (inner, cx.dispatch()) {
-            (Some(i), Dispatch::Immediate(_)) => Some(&*i),
-            (None, Dispatch::Deferred(o)) => o.as_ref().and_then(|o| {
-                if let Operator::Create(operators::Create(Some(i))) = o {
-                    Some(i)
+            if inner.is_none_or(|i| {
+                if let CreateInner::Yielded(s) = i {
+                    !Arc::ptr_eq(s, &self.0)
                 } else {
-                    None
+                    true
                 }
-            }),
-            _ => unreachable!(),
-        };
-
-        if inner.is_none_or(|i| {
-            if let CreateInner::Yielded(s) = i {
-                !Arc::ptr_eq(s, &self.0)
-            } else {
-                true
+            }) {
+                panic!("Continued Add operator while it was not active");
             }
-        }) {
-            panic!("Continued Add operator while it was not active");
-        }
 
-        let Some(value) = kind else { return };
-        let pos = cx.driver().cell.position(cx.widget());
+            let Some(value) = kind else { return };
+            let pos = cx.driver().cell.position(cx.widget());
 
-        cx.run_action(CreateNode(value, pos), None);
-        cx.finish();
+            cx.run_action(CreateNode(value, pos), None);
+            cx.finish();
+        })
     }
 }
