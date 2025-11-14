@@ -11,6 +11,7 @@ pub trait Node: fmt::Debug + Clone + Send + Sync + 'static {
     type Widget;
     type PortShape;
 
+    #[expect(clippy::must_use_candidate)]
     fn override_prototype() -> Option<Result<Self::Prototype, ()>> { None }
 
     fn create(proto: Self::Prototype, position: Point) -> Self;

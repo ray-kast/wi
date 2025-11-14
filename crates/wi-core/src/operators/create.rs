@@ -88,11 +88,12 @@ impl<W: NodeOps + UiOps + ?Sized>
                 panic!("Continued Add operator while it was not active");
             }
 
-            let Some(value) = kind else { return };
-            let pos = cx.driver().cell.position(cx.widget());
+            if let Some(value) = kind {
+                let pos = cx.driver().cell.position(cx.widget());
+                cx.run_action(CreateNode(value, pos), None);
+            }
 
-            cx.run_action(CreateNode(value, pos), None);
             cx.finish();
-        })
+        });
     }
 }

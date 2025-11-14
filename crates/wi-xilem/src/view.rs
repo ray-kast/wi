@@ -139,7 +139,7 @@ impl<N: Node + 'static, State: 'static, Action: 'static>
 
     fn teardown(
         &self,
-        view_state: &mut Self::ViewState,
+        _view_state: &mut Self::ViewState,
         cx: &mut ViewCtx,
         element: xilem::core::Mut<'_, Self::Element>,
     ) {

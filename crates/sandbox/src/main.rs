@@ -4,7 +4,7 @@ use wi_xilem::{
     view::{graph_editor, graph_editor_modals},
 };
 use xilem::{
-    view::{button, flex_col, label, FlexExt},
+    view::{button, flex_col, flex_row, label, FlexExt},
     winit::dpi::LogicalSize,
     EventLoop, WidgetView, WindowOptions, Xilem,
 };
@@ -89,9 +89,12 @@ struct State {
 fn app_logic(_: &mut State) -> impl WidgetView<State> + use<> {
     graph_editor_modals(|state: &mut State, params, mut modal| {
         flex_col((
-            modal
-                .want_node_prototype()
-                .map(|m| button(label("hi!"), move |_| m.respond(Some(())))),
+            modal.want_node_prototype().map(|m| {
+                flex_row((
+                    button(label("OK"), move |_| m.respond(Some(()))),
+                    button(label("Cancel"), move |_| m.respond(None)),
+                ))
+            }),
             graph_editor(state.graph.clone(), params, |s: &mut State, g, _| {
                 s.graph = g;
             })

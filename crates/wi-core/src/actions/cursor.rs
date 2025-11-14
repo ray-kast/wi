@@ -105,7 +105,7 @@ fn move_cursor<W: CursorOps + ?Sized>(
                 CursorUpdate::Move,
                 d.cursor.as_ref().unwrap_or_else(|| unreachable!()),
                 c,
-            )
+            );
         });
     }
 
@@ -200,7 +200,7 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
                 CursorUpdate::CenterInView,
                 d.cursor.as_ref().unwrap_or_else(|| unreachable!()),
                 c,
-            )
+            );
         });
         true
     }
