@@ -10,11 +10,11 @@ pub(super) mod actions {
 }
 
 impl<W: NodeOps + ?Sized> EditorAction<W> for actions::CreateNode<W> {
-    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
-        let Self(kind, pos) = self;
+        let Self(ref kind, pos) = *self;
 
-        cx.run(|w, _, c| w.create_node(kind, pos, c));
+        cx.run(|w, _, c| w.create_node(kind.clone(), pos, c));
 
         true
     }

@@ -24,7 +24,7 @@ pub trait GraphWidgetTypes {
 
     type Context<'cx, 'widget: 'cx>;
 
-    type NodeKind;
+    type NodeKind: Clone;
 
     fn reborrow_cx<'widget, 're>(
         cx: &'re mut Self::Context<'_, 'widget>,

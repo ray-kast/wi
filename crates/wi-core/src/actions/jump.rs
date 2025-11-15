@@ -15,7 +15,7 @@ pub(super) mod actions {
 }
 
 impl<W: GraphWidgetTypes + ?Sized, S: Selection> EditorMotion<W, S> for actions::JumpToPort {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool {
         let None = count else { return false };
         let Self(side) = self;
 

@@ -113,8 +113,8 @@ fn move_cursor<W: CursorOps + ?Sized>(
 }
 
 impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::StepCursor {
-    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
-        let Self(step) = self;
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
+        let Self(step) = *self;
 
         move_cursor(count, &mut cx, |steps, cursor, widget, cell| {
             let dec;
@@ -193,7 +193,7 @@ impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::StepCu
 }
 
 impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
-    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
         cx.run(|w, d, c| {
             w.update_cursor(
@@ -207,7 +207,7 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
 }
 
 impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::GoToOpposite {
-    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
         move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;
             let next = match (count.get(), cursor) {

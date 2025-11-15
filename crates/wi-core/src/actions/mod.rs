@@ -19,10 +19,7 @@ pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
 
     pub(crate) use super::{all::*, ActionCx, EditorAction, EditorMotion, Kind};
-    pub use crate::{
-        cursor::{Selection, SelectionExt},
-        traits::*,
-    };
+    pub use crate::{cursor::Selection, traits::*};
 
     pub fn run_with_count(
         count: Option<NonZeroU32>,
@@ -86,7 +83,7 @@ mod imp {
     }
 
     pub(crate) trait EditorAction<W: GraphWidgetTypes + ?Sized>: Kind<ActionKind> {
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool;
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool;
     }
 
     #[impl_enum]
@@ -130,7 +127,7 @@ mod imp {
     #[impl_enum]
     impl<W: GraphWidget + ?Sized> EditorAction<W> for Action<W> {
         #[inline]
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
             dispatch!(self, count, cx)
         }
     }
@@ -138,7 +135,7 @@ mod imp {
     #[impl_enum]
     impl<W: GraphWidget + ?Sized> EditorAction<W> for SimpleAction {
         #[inline]
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
             dispatch!(self, count, cx)
         }
     }
@@ -194,7 +191,7 @@ mod imp {
     pub(crate) trait EditorMotion<W: GraphWidgetTypes + ?Sized, S: Selection>:
         Kind<MotionKind>
     {
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool;
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool;
     }
 
     impl<T: Kind<MotionKind>> Kind<ActionKind> for T {
@@ -203,7 +200,7 @@ mod imp {
     }
 
     impl<W: GraphWidgetTypes + ?Sized, T: EditorMotion<W, NullSelection>> EditorAction<W> for T {
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
             EditorMotion::process(self, count, cx, NullSelection)
         }
     }
@@ -227,7 +224,7 @@ mod imp {
     #[impl_enum]
     impl<W: CursorOps + UiOps + ?Sized, S: Selection> EditorMotion<W, S> for Motion {
         #[inline]
-        fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool {
+        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool {
             dispatch!(self, count, cx, selection)
         }
     }
@@ -290,8 +287,8 @@ mod basic {
 }
 
 impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::PushCount {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        let Self(digit) = self;
+    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        let Self(digit) = *self;
         let digit = u32::from(digit) - u32::from('0');
         cx.driver.count = count
             .map_or(0, NonZero::get)
@@ -303,8 +300,8 @@ impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::PushCount {
 }
 
 impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::SetMode {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        let Self(m) = self;
+    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+        let Self(m) = *self;
         let None = count else { return false };
 
         cx.driver.mode.change(m)
@@ -312,7 +309,7 @@ impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::SetMode {
 }
 
 impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::ToggleDebug {
-    fn process(self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
         cx.driver.debug = !cx.driver.debug;

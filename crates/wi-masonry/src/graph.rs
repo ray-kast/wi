@@ -6,7 +6,7 @@ use petgraph::{prelude::*, visit::IntoEdgeReferences};
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
 pub trait Node: fmt::Debug + Clone + Send + Sync + 'static {
-    type Prototype;
+    type Prototype: Clone;
     type Icon;
     type Widget;
     type PortShape;

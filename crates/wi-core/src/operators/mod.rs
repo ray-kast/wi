@@ -25,7 +25,7 @@ mod imp {
     use wi_macros::impl_enum;
 
     use super::prelude::*;
-    use crate::DriverInner;
+    use crate::{actions::Action, DriverInner};
 
     #[derive(Debug, Default)]
     pub struct CurrentOperator(Option<Operator>);
@@ -111,15 +111,22 @@ mod imp {
             )
         }
 
-        pub(crate) fn run_action<A: EditorAction<W>>(
+        pub(crate) fn run_action<A: EditorAction<W> + Into<Action<W>>>(
             &mut self,
             action: A,
             count: Option<NonZeroU32>,
         ) -> bool {
-            action.process(
+            let loud = !action.kind().is_silent();
+            let handled = action.process(
                 count,
                 ActionCx::new(self.widget, self.driver, W::reborrow_cx(&mut self.inner)),
-            )
+            );
+
+            if handled && loud {
+                self.driver.last_action = Some(action.into());
+            }
+
+            handled
         }
 
         #[inline]

@@ -69,7 +69,7 @@ fn fixup_cursor<W: CursorOps + ?Sized>(
 }
 
 impl<W: CursorOps + EdgeOps + NodeOps + ?Sized> EditorAction<W> for actions::DeleteAtCursor {
-    fn process(self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let None = count else { return false };
 
         cx.run(|widget, driver, mut cx| {
