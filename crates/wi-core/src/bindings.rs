@@ -70,9 +70,9 @@ pub enum Key {
 static_acceptors! {
     input = Key;
 
-    token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL) => "<Esc>";
-    token Home = N(K::Home, M_NONE) => "<Home>";
-    token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE) => "<Ret>";
+    token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL) => "\u{238b}";
+    token Home = N(K::Home, M_NONE) => "\u{21b0}";
+    token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE) => "\u{23ce}";
 
     token CommandOp = C(':', M_NONE | M_SHIFT) => ":";
     token CreateOp = C('c', M_NONE) => "c";
@@ -80,7 +80,7 @@ static_acceptors! {
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
     token Quit = C('q', M_NONE) => "q";
-    token CtrlQuit = C('q', M_CTRL) => "<C-q>";
+    token CtrlQuit = C('q', M_CTRL) => "\u{2303}q";
 
     token Debug = C('d', M_NONE) => "d";
 
