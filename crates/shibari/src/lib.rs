@@ -7,7 +7,7 @@ pub trait Acceptor<T> {
 
     fn pending_op(&self) -> &'static str;
 
-    fn accept(&mut self, input: T) -> Self::Output;
+    fn accept(&mut self, input: T) -> (&'static str, Self::Output);
 }
 
 pub trait AcceptorOutput {

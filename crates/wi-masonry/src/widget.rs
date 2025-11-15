@@ -21,7 +21,7 @@ use wi_core::{
     Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
-use self::{context::AnyContext, core::EditorCore, edge::Edge};
+use self::{core::EditorCore, edge::Edge};
 use crate::{
     graph::{self, Graph, InputLabel, Node, NodeLabel, NodeStyle, OutputLabel},
     widget::node::NodeExt,

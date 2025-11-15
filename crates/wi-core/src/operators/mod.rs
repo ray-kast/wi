@@ -5,11 +5,13 @@ pub mod all {
 }
 
 pub mod prelude {
-    pub use std::sync::Arc;
+    pub use std::{borrow::Cow, sync::Arc};
 
     pub use shibari::Acceptor;
 
-    pub use super::{all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind};
+    pub(crate) use super::{
+        all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind, OperatorState,
+    };
     pub use crate::{
         actions::prelude::*,
         bindings::*,
@@ -121,21 +123,23 @@ mod imp {
         }
 
         #[inline]
-        pub fn abort(&mut self) {
+        pub fn abort(mut self, pending: Cow<'static, str>) {
             match self.dispatch {
                 Dispatch::Immediate(ref mut r) => **r = OperatorResult::Abort,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
+                    self.driver.last_op.chord = pending;
                 },
             }
         }
 
         #[inline]
-        pub fn finish(&mut self) {
+        pub fn finish(mut self, pending: Cow<'static, str>) {
             match self.dispatch {
                 Dispatch::Immediate(ref mut r) => **r = OperatorResult::Finish,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
+                    self.driver.last_op.chord = pending;
                 },
             }
         }
@@ -148,16 +152,18 @@ mod imp {
         Abort,
     }
 
-    pub(crate) trait EditorOperator<W: GraphWidgetTypes + ?Sized>:
-        Kind<OperatorKind>
-    {
-        fn init(&mut self, cx: OperatorCx<W>);
+    pub(crate) trait OperatorState: Kind<OperatorKind> {
+        fn pending_op(&self) -> Cow<'static, str>;
+    }
+
+    pub(crate) trait EditorOperator<W: GraphWidgetTypes + ?Sized>: OperatorState {
+        fn init(&mut self, count: Option<NonZeroU32>, cx: OperatorCx<W>);
 
         fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
     pub trait OperatorInner<W: GraphWidgetTypes + ?Sized>: Sized {
-        fn new(cx: OperatorCx<W>) -> Self;
+        fn new(count: Option<NonZeroU32>, cx: OperatorCx<W>) -> Option<Self>;
 
         fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
@@ -174,8 +180,15 @@ mod imp {
     }
 
     #[impl_enum]
+    impl OperatorState for Operator {
+        fn pending_op(&self) -> Cow<'static, str> { dispatch!(self) }
+    }
+
+    #[impl_enum]
     impl<W: GraphWidget + ?Sized> EditorOperator<W> for Operator {
-        fn init(&mut self, cx: OperatorCx<W>) { dispatch!(self, cx) }
+        fn init(&mut self, count: Option<NonZeroU32>, cx: OperatorCx<W>) {
+            dispatch!(self, count, cx)
+        }
 
         fn step(&mut self, key: Key, cx: OperatorCx<W>) { dispatch!(self, key, cx) }
     }
@@ -201,10 +214,10 @@ mod imp {
     }
 }
 
-pub(crate) use imp::EditorOperator;
 pub use imp::{
     CurrentOperator, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind, OperatorResult,
 };
+pub(crate) use imp::{EditorOperator, OperatorState};
 
 macro_rules! operator {
     (
@@ -229,11 +242,30 @@ macro_rules! operator {
             }
         }
 
-        impl<W: crate::traits::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
-            fn init(&mut self, mut cx: crate::operators::OperatorCx<W>) {
-                if self.0.is_some() { cx.abort() }
+        impl crate::operators::OperatorState for $op {
+            fn pending_op(&self) -> ::std::borrow::Cow<'static, str> {
+                if let Some(ref inner) = self.0 {
+                    <$inner as crate::operators::OperatorState>::pending_op(inner)
+                } else {
+                    ::std::borrow::Cow::Borrowed("")
+                }
+            }
+        }
 
-                self.0 = Some(<$inner as crate::operators::OperatorInner<W>>::new(cx));
+        impl<W: crate::traits::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
+            fn init(
+                &mut self,
+                count: Option<::core::num::NonZeroU32>,
+                cx: crate::operators::OperatorCx<W>,
+            ) {
+                if let Some(ref inner) = self.0 {
+                    cx.abort(
+                        <$inner as crate::operators::OperatorState>::pending_op(inner)
+                    );
+                    return;
+                }
+
+                self.0 = <$inner as crate::operators::OperatorInner<W>>::new(count, cx);
             }
 
             fn step(&mut self, key: crate::bindings::Key, cx: crate::operators::OperatorCx<W>) {

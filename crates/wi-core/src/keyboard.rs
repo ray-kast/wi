@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use keyboard_types::{Modifiers, NamedKey as K};
 use shibari::Acceptor;
 use tracing::{debug, instrument};
@@ -8,7 +10,7 @@ use crate::{
     continuation::Dispatch,
     operators::{CurrentOperator, EditorOperator, OperatorCx, OperatorResult},
     traits::GraphWidget,
-    DriverInner, GraphWidgetDriver,
+    DriverInner, GraphWidgetDriver, LastOp,
 };
 
 impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
@@ -103,13 +105,28 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
             };
         }
 
-        match self.mode.accept(key) {
+        let (pend, out) = self.mode.accept(key);
+        match out {
             ActionOut::Trap => {
+                self.last_op = LastOp {
+                    count: self.count.map(NonZero::get),
+                    chord: pend.into(),
+                };
                 self.count = None;
+
                 false
             },
             ActionOut::Advance => true,
             ActionOut::Action(action) => {
+                let loud = !action.kind().is_silent();
+
+                if loud {
+                    self.last_op = LastOp {
+                        count: self.count.map(NonZero::get),
+                        chord: pend.into(),
+                    };
+                }
+
                 debug!(
                     action = action.kind().name(),
                     count = self.count,
@@ -120,20 +137,28 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                     ActionCx::new(widget, self, W::reborrow_cx(&mut cx)),
                 );
 
-                if handled && !action.kind().is_silent() {
+                if handled && loud {
                     self.last_action = Some(action.into());
                 }
 
                 handled
             },
             ActionOut::Operator(mut operator) => {
+                self.last_op = LastOp {
+                    count: self.count.map(NonZero::get),
+                    chord: pend.into(),
+                };
+
                 let mut res = OperatorResult::Continue;
-                operator.init(OperatorCx::new(
-                    widget,
-                    self,
-                    W::reborrow_cx(&mut cx),
-                    Dispatch::Immediate(&mut res),
-                ));
+                operator.init(
+                    self.count.take(),
+                    OperatorCx::new(
+                        widget,
+                        self,
+                        W::reborrow_cx(&mut cx),
+                        Dispatch::Immediate(&mut res),
+                    ),
+                );
 
                 match res {
                     OperatorResult::Continue => {

@@ -1,9 +1,11 @@
+use std::borrow::Cow;
+
 use hashbrown::HashMap;
 use shibari_grammar::{
-    table::{ConversionPath, Delta, DeltaKind, SparseTable, StateId, TreeOutput},
+    table::{self, ConversionPath, Delta, DeltaKind, StateId, TreeOutput},
     tree::{RootId, TokenId},
 };
-use syn::Ident;
+use syn::{Ident, LitStr};
 
 use crate::prelude::*;
 
@@ -21,12 +23,12 @@ pub(super) fn run(input: Input) -> TokenStream {
         pream_eq_token: _,
         pream_ty: input_ty,
         pream_semi_token: _,
-        tokens,
+        token_defs,
         grammars,
     } = input;
 
-    let trees = reparse::parse_grammars(tokens, grammars, &mut diag);
-    let tables = trees.flatten(|p| reparse::StateExtra::from_path(p, &mut diag));
+    let trees = reparse::parse_grammars(token_defs, grammars, &mut diag);
+    let tables = trees.flatten(reparse::StateExtra::from_path);
 
     let shibari = alias.map_or_else(
         || syn::parse_quote! { ::shibari },
@@ -73,15 +75,14 @@ struct AcceptorCx<'a> {
     state_ty: Ident,
 }
 
+type SparseTable<'a> = table::SparseTable<
+    TokenId,
+    TreeOutput<'a, reparse::Output, reparse::ExtendConversion>,
+    reparse::StateExtra,
+>;
+
 fn emit_acceptor(
-    (root, table): (
-        RootId,
-        SparseTable<
-            TokenId,
-            TreeOutput<reparse::Output, reparse::ExtendConversion>,
-            reparse::StateExtra,
-        >,
-    ),
+    (root, table): (RootId, SparseTable),
     trees: &reparse::TreeMap,
     cx: &BaseCx,
 ) -> TokenStream {
@@ -92,7 +93,12 @@ fn emit_acceptor(
     let mut accept_arms = TokenStream::new();
 
     let root = trees.root(root).unwrap_or_else(|| unreachable!());
-    let reparse::RootExtra { vis, ident, output } = root.extra();
+    let reparse::RootExtra {
+        vis,
+        ident,
+        output,
+        op: _,
+    } = root.extra();
     let span = ident.span();
 
     let cx = AcceptorCx {
@@ -125,13 +131,13 @@ fn emit_acceptor(
         for (&input, output) in state.delta() {
             let reparse::TokenDef { pat, .. } =
                 trees.token(input).unwrap_or_else(|| unreachable!());
-            let delta = emit_delta(output, span, &cx, &mut conv_state);
+            let delta = emit_delta(output, span, state.extra(), &cx, &mut conv_state);
 
             accept_arms.extend(quote_spanned! { span => (#state_ty::#id, #pat) => #delta });
         }
 
         let delta = state.default_delta();
-        let delta = emit_delta(delta, span, &cx, &mut conv_state);
+        let delta = emit_delta(delta, span, state.extra(), &cx, &mut conv_state);
 
         accept_arms.extend(quote_spanned! { span => (#state_ty::#id, _) => #delta });
     }
@@ -174,7 +180,7 @@ fn emit_acceptor(
                 match self.0 { #op_arms }
             }
 
-            fn accept(&mut self, __input: #input_ty) -> Self::Output {
+            fn accept(&mut self, __input: #input_ty) -> (&'static str, Self::Output) {
                 #![allow(
                     clippy::never_loop,
                     clippy::useless_conversion,
@@ -197,12 +203,16 @@ fn emit_acceptor(
 fn emit_delta(
     delta: &Delta<TreeOutput<reparse::Output, reparse::ExtendConversion>>,
     span: Span,
+    state: &reparse::StateExtra,
     cx: &AcceptorCx,
     conv_state: &mut ConvertState,
 ) -> TokenStream {
-    let &Delta { next, ref kind } = delta;
+    let &Delta {
+        next: next_id,
+        ref kind,
+    } = delta;
     let span = if let DeltaKind::Yield(TreeOutput {
-        output: reparse::Output::Expr(e),
+        output: reparse::Output::Expr(_, e),
         ..
     }) = kind
     {
@@ -210,14 +220,24 @@ fn emit_delta(
     } else {
         span
     };
-    let next = make_state_name(next, span);
+    let next = make_state_name(next_id, span);
 
     let state_ty = &cx.state_ty;
 
     match kind {
         DeltaKind::Yield(TreeOutput { output, conversion }) => {
-            let out = emit_conversion(conversion, output, cx, conv_state);
-            quote_spanned! { span => (#state_ty::#next, #out), }
+            let mut op = Cow::Borrowed(&state.op);
+            let (out_op, out) = emit_conversion(conversion, output, cx, conv_state);
+
+            if let Some(out_op) = out_op {
+                let mut s = op.value();
+
+                s.push_str(&out_op.value());
+
+                op = Cow::Owned(LitStr::new(&s, state.op.span()));
+            }
+
+            quote_spanned! { span => (#state_ty::#next, (#op, #out)), }
         },
         DeltaKind::Continue => quote_spanned! { span =>
             { *__state = #state_ty::#next; continue; },
@@ -231,14 +251,14 @@ struct ConvertState {
     names: HashMap<(reparse::ExtendConversion, Ident), Ident>,
 }
 
-fn emit_conversion(
+fn emit_conversion<'a>(
     conversion: &ConversionPath<reparse::ExtendConversion>,
-    output: &reparse::Output,
+    output: &'a reparse::Output,
     cx: &AcceptorCx,
     state: &mut ConvertState,
-) -> TokenStream {
+) -> (Option<&'a LitStr>, TokenStream) {
     let span = match output {
-        reparse::Output::Expr(e) => e.span(),
+        reparse::Output::Expr(_, e) => e.span(),
         reparse::Output::Trap | reparse::Output::Advance => cx.base.accept_state_path.span(),
     };
 
@@ -259,21 +279,21 @@ fn emit_conversion(
     let mut source_accept_opt = it.peek().map(|c| make_accept_ty(&c.source_grammar, span));
     let source_accept = source_accept_opt.as_ref().unwrap_or(accept_ty);
 
-    let mut converted = match output {
-        reparse::Output::Expr(e) => quote_spanned! { span =>
+    let (op, mut converted) = match output {
+        reparse::Output::Expr(l, e) => (l, quote_spanned! { span =>
             ::core::convert::Into::<
                 <#source_accept as #acceptor_path<#input_ty>>::Output
             >::into(#e)
-        },
+        }),
         reparse::Output::Trap => {
-            return quote_spanned! { span =>
+            return (None, quote_spanned! { span =>
                 <Self::Output as #accept_state_path>::TRAP
-            }
+            })
         },
         reparse::Output::Advance => {
-            return quote_spanned! { span =>
+            return (None, quote_spanned! { span =>
                 <Self::Output as #accept_state_path>::ADVANCE
-            }
+            })
         },
     };
 
@@ -311,5 +331,5 @@ fn emit_conversion(
         source_accept_opt = target_accept_opt;
     }
 
-    converted
+    (Some(op), converted)
 }

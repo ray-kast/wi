@@ -1,5 +1,6 @@
 use std::fmt;
 
+use hashbrown::HashMap;
 use shibari_grammar::{
     table::TreeStatePath,
     tree::{self, LeafBuilder},
@@ -9,11 +10,34 @@ use syn::{Block, Expr, Ident, Label, Lifetime, LitStr, Pat, Type, Visibility};
 use super::parse;
 use crate::prelude::*;
 
-pub(super) type TokenName = Ident;
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(super) enum TokenName {
+    Named(Ident),
+    Anon(Pat),
+}
+
+impl fmt::Display for TokenName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Named(i) => write!(f, "named token {i}"),
+            Self::Anon(_) => write!(f, "anonymous token"),
+        }
+    }
+}
+
+impl ToTokens for TokenName {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            Self::Named(i) => i.to_tokens(tokens),
+            Self::Anon(p) => p.to_tokens(tokens),
+        }
+    }
+}
+
 pub(super) type RootName = Ident;
 
 pub(super) enum Output {
-    Expr(Expr),
+    Expr(LitStr, Expr),
     Trap,
     Advance,
 }
@@ -21,7 +45,7 @@ pub(super) enum Output {
 impl fmt::Debug for Output {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Expr(e) => write!(f, "{}", e.to_token_stream()),
+            Self::Expr(l, e) => write!(f, "({}, {})", l.to_token_stream(), e.to_token_stream()),
             Self::Trap => write!(f, "<Self::Output as AcceptorOutput>::TRAP"),
             Self::Advance => write!(f, "<Self::Output as AcceptorOutput>::ADVANCE"),
         }
@@ -62,19 +86,19 @@ pub(super) enum ExtendConversionKind {
 }
 
 pub(super) struct TokenDef {
-    name: Ident,
+    name: TokenName,
     pub pat: Pat,
-    pub op: Option<LitStr>,
+    pub op: LitStr,
 }
 
 impl fmt::Debug for TokenDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let pat = self.pat.to_token_stream();
-        if let Some(op) = &self.op {
-            write!(f, "<{}> {pat}", op.to_token_stream())
-        } else {
-            write!(f, "{pat}")
-        }
+        write!(
+            f,
+            "<{}> {}",
+            self.op.to_token_stream(),
+            self.pat.to_token_stream()
+        )
     }
 }
 
@@ -84,22 +108,34 @@ pub(super) struct RootExtra {
     pub vis: Visibility,
     pub ident: Ident,
     pub output: Type,
+    pub op: Option<LitStr>,
 }
 
 impl fmt::Debug for RootExtra {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { vis, ident, output } = self;
+        let Self {
+            vis,
+            ident,
+            output,
+            op,
+        } = self;
         write!(
             f,
             "{} {ident} -> {}",
             vis.to_token_stream(),
-            output.to_token_stream()
-        )
+            output.to_token_stream(),
+        )?;
+
+        if let Some(op) = op {
+            write!(f, "=> {}", op.to_token_stream())?;
+        }
+
+        Ok(())
     }
 }
 
 pub(super) struct LeafExtra {
-    name_span: Span,
+    token_ref_span: Span,
 }
 
 impl fmt::Debug for LeafExtra {
@@ -107,7 +143,7 @@ impl fmt::Debug for LeafExtra {
 }
 
 pub(super) struct TreeExtra {
-    name_span: Span,
+    id_span: Span,
     label: Option<Label>,
 }
 
@@ -115,6 +151,17 @@ impl fmt::Debug for TreeExtra {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("TreeExtra") }
 }
 
+pub(super) type TreeMapBuilder = tree::TreeMapBuilder<
+    TokenName,
+    RootName,
+    Output,
+    ExtendConversion,
+    TokenDef,
+    TreeLabel,
+    RootExtra,
+    LeafExtra,
+    TreeExtra,
+>;
 pub(super) type TreeBuilder = tree::TreeBuilder<
     TokenName,
     RootName,
@@ -129,13 +176,14 @@ pub(super) type BuildError =
 pub(super) type TreeMap =
     tree::TreeMap<Output, ExtendConversion, TokenDef, RootExtra, LeafExtra, TreeExtra>;
 
-impl From<parse::Output> for tree::LeafBuilder<Output, TreeLabel> {
-    fn from(value: parse::Output) -> Self {
-        match value {
-            parse::Output::Expr(_, e) => LeafBuilder::Output(Output::Expr(e)),
-            parse::Output::Goto(_, l, o) => LeafBuilder::Goto(l, o.map(|(_, e)| Output::Expr(e))),
-            parse::Output::Continue(_) => LeafBuilder::Retry(None),
-        }
+fn leaf_builder(output: &parse::Output, op: &LitStr) -> tree::LeafBuilder<Output, TreeLabel> {
+    match output {
+        parse::Output::Expr(_, e) => LeafBuilder::Output(Output::Expr(op.clone(), e.clone())),
+        parse::Output::Goto(_, l, o) => LeafBuilder::Goto(
+            l.clone(),
+            o.as_ref().map(|(_, e)| Output::Expr(op.clone(), e.clone())),
+        ),
+        parse::Output::Continue(_) => LeafBuilder::Retry(None),
     }
 }
 
@@ -150,34 +198,20 @@ impl fmt::Debug for StateExtra {
 }
 
 impl StateExtra {
-    pub fn from_path(
-        path: &TreeStatePath<TokenDef, RootExtra, TreeExtra>,
-        diag: &mut TokenStream,
-    ) -> Self {
+    pub fn from_path(path: &TreeStatePath<TokenDef, RootExtra, TreeExtra>) -> Self {
         Self {
             op: LitStr::new(
                 &path
-                    .path
+                    .root
+                    .op
                     .iter()
-                    .map(|&(_, d, _)| {
-                        d.op.as_ref().map_or_else(
-                            || {
-                                diag.extend(
-                                    d.name
-                                        .span()
-                                        .error("Missing pending-op string for token used in branch")
-                                        .into_compile_error(),
-                                );
-                                String::new()
-                            },
-                            LitStr::value,
-                        )
-                    })
+                    .map(syn::LitStr::value)
+                    .chain(path.path.iter().map(|&(_, d, _)| d.op.value()))
                     .collect::<String>(),
                 path.path
                     .last()
                     .map_or_else(|| &path.root_tree, |(_, _, t)| t)
-                    .name_span,
+                    .id_span,
             ),
         }
     }
@@ -194,15 +228,15 @@ impl Extend<BuildError> for ErrorAdapter<'_> {
                     .span()
                     .error(format!("Duplicate token definition for {n}")),
                 tree::BuildError::DuplicateRoot(n, _, t) => t
-                    .name_span
+                    .id_span
                     .error(format!("Duplicate grammar definition for {n}")),
 
                 tree::BuildError::DuplicateLeaf(r, k, l) => l
-                    .name_span
+                    .token_ref_span
                     .error(format!("Duplicate leaf delta for {k} in grammar {r}")),
 
                 tree::BuildError::DuplicateBranch(r, k, t) => t
-                    .name_span
+                    .id_span
                     .error(format!("Duplicate branch delta for {k} in grammar {r}")),
 
                 tree::BuildError::DuplicateLabel(r, l) => {
@@ -220,31 +254,39 @@ impl Extend<BuildError> for ErrorAdapter<'_> {
 }
 
 pub(super) fn parse_grammars(
-    tokens: Vec<parse::TokenDef>,
+    token_defs: Vec<parse::TokenDef>,
     grammars: Vec<parse::GrammarDef>,
     diag: &mut TokenStream,
 ) -> TreeMap {
     let mut b = TreeMap::builder();
 
+    let token_ops: HashMap<_, _> = token_defs
+        .iter()
+        .map(|d| (d.ident.clone(), d.body.op.lit.clone()))
+        .collect();
+
     for parse::TokenDef {
         token: _,
         ident,
         eq_token: _,
-        pat,
-        op,
+        body:
+            parse::TokenBody {
+                pat,
+                op:
+                    parse::TokenOp {
+                        arrow_token: _,
+                        lit,
+                    },
+            },
         semi_token: _,
-    } in tokens
+    } in token_defs
     {
-        b.token(ident.clone(), TokenDef {
-            name: ident,
-            pat,
-            op: op.map(
-                |parse::TokenOp {
-                     arrow_token: _,
-                     lit,
-                 }| lit,
-            ),
-        });
+        let name = TokenName::Named(ident.clone());
+        b.token(name.clone(), TokenDef { name, pat, op: lit });
+    }
+
+    for grammar in &grammars {
+        visit_anon_tokens(&mut b, &grammar.root);
     }
 
     for parse::GrammarDef {
@@ -253,6 +295,7 @@ pub(super) fn parse_grammars(
         ident,
         colon_token: _,
         output,
+        op,
         root:
             parse::NodeBranch {
                 brace: _,
@@ -265,22 +308,30 @@ pub(super) fn parse_grammars(
     {
         if let Some(o) = out {
             diag.extend(
-                o.expr
-                    .span()
+                o.span()
                     .error("Branch yield not allowed for grammar roots")
                     .into_compile_error(),
             );
         }
 
-        let name_span = ident.span();
         b.root_with_extra(
             ident.clone(),
             TreeExtra {
-                name_span,
+                id_span: ident.span(),
                 label: None,
             },
-            RootExtra { vis, ident, output },
-            |b| build_tree(b, &nodes, &extends, default.as_ref(), diag),
+            RootExtra {
+                vis,
+                ident,
+                output,
+                op: op.map(
+                    |parse::TokenOp {
+                         arrow_token: _,
+                         lit,
+                     }| lit,
+                ),
+            },
+            |b| build_tree(b, &nodes, &extends, default.as_ref(), &token_ops, diag),
         );
     }
 
@@ -324,22 +375,65 @@ pub(super) fn parse_grammars(
     trees
 }
 
+fn visit_anon_tokens(b: &mut TreeMapBuilder, branch: &parse::NodeBranch) {
+    for node in &branch.nodes {
+        for tok_ref in &node.tok_refs {
+            if let parse::TokenRef::Anon(
+                _,
+                _,
+                parse::TokenBody {
+                    pat,
+                    op:
+                        parse::TokenOp {
+                            arrow_token: _,
+                            lit,
+                        },
+                },
+            ) = tok_ref
+            {
+                let name = TokenName::Anon(pat.clone());
+                b.token(name.clone(), TokenDef {
+                    name,
+                    pat: pat.clone(),
+                    op: lit.clone(),
+                });
+            }
+        }
+
+        if let parse::NodeKind::Branch(ref branch) = node.kind {
+            visit_anon_tokens(b, branch);
+        }
+    }
+}
+
 fn build_tree<'b>(
     b: &'b mut TreeBuilder,
     nodes: &[parse::GrammarNode],
     extends: &[parse::GrammarExtend],
     default: Option<&parse::BranchDefault>,
+    token_ops: &HashMap<Ident, LitStr>,
     diag: &mut TokenStream,
 ) -> &'b mut TreeBuilder {
     for parse::GrammarNode {
         label,
         leading_vert: _,
-        tok_idents,
+        tok_refs,
         kind,
     } in nodes
     {
-        for tok_ident in tok_idents {
-            let name_span = tok_ident.span();
+        for tok_ref in tok_refs {
+            let token_ref_span = tok_ref.span();
+            let empty_op = LitStr::new("", token_ref_span);
+            let (token_name, token_op) = match tok_ref {
+                parse::TokenRef::Named(i) => (
+                    TokenName::Named(i.clone()),
+                    token_ops.get(i).unwrap_or(&empty_op),
+                ),
+                parse::TokenRef::Anon(_, _, parse::TokenBody { pat, op }) => {
+                    (TokenName::Anon(pat.clone()), &op.lit)
+                },
+            };
+
             match &kind {
                 parse::NodeKind::Leaf(parse::NodeLeaf {
                     arrow_token: _,
@@ -355,8 +449,8 @@ fn build_tree<'b>(
                         );
                     }
 
-                    b.leaf_with_extra(tok_ident.clone(), out.clone().into(), LeafExtra {
-                        name_span,
+                    b.leaf_with_extra(token_name, leaf_builder(out, token_op), LeafExtra {
+                        token_ref_span,
                     })
                 },
                 parse::NodeKind::Branch(parse::NodeBranch {
@@ -366,9 +460,9 @@ fn build_tree<'b>(
                     extends,
                     default,
                 }) => b.branch_with_extra(
-                    tok_ident.clone(),
+                    token_name,
                     TreeExtra {
-                        name_span,
+                        id_span: token_ref_span,
                         label: label.clone(),
                     },
                     |b| {
@@ -377,15 +471,18 @@ fn build_tree<'b>(
                         }
 
                         if let Some(parse::BranchYield {
-                            yield_token: _,
+                            yield_token,
                             expr,
                             semi_token: _,
                         }) = out
                         {
-                            b.out(Output::Expr(expr.clone()));
+                            b.out(Output::Expr(
+                                LitStr::new("", yield_token.span()),
+                                expr.clone(),
+                            ));
                         }
 
-                        build_tree(b, nodes, extends, default.as_ref(), diag);
+                        build_tree(b, nodes, extends, default.as_ref(), token_ops, diag);
                         b
                     },
                 ),
@@ -416,7 +513,7 @@ fn build_tree<'b>(
     }
 
     if let Some(parse::BranchDefault { ddot_token: _, out }) = default {
-        b.default(out.clone().into());
+        b.default(leaf_builder(out, &LitStr::new("", out.span())));
     }
 
     b

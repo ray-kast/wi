@@ -69,32 +69,34 @@ pub enum Key {
 static_acceptors! {
     input = Key;
 
-    token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL);
-    token Home = N(K::Home, M_NONE);
-    token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE);
+    token Escape = N(K::Escape, M_NONE) | C('[' | 'c', M_TCTL) => "<Esc>";
+    token Home = N(K::Home, M_NONE) => "<Home>";
+    token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE) => "<Ret>";
 
     token CommandOp = C(':', M_NONE | M_SHIFT) => ":";
-    token CreateOp = C('c', M_NONE);
+    token CreateOp = C('c', M_NONE) => "c";
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
     token ViewOp = C('z', M_NONE) => "z";
-    token Quit = C('q', M_NONE);
-    token CtrlQuit = C('q', M_CTRL);
+    token Quit = C('q', M_NONE) => "q";
+    token CtrlQuit = C('q', M_CTRL) => "<C-q>";
 
-    token Debug = C('d', M_NONE);
+    token Debug = C('d', M_NONE) => "d";
 
-    token Left = C('h', M_NONE) | N(K::ArrowLeft, M_NONE);
-    token Down = C('j', M_NONE) | N(K::ArrowDown, M_NONE);
-    token Up = C('k', M_NONE) | N(K::ArrowUp, M_NONE);
-    token Right = C('l', M_NONE) | N(K::ArrowRight, M_NONE);
+    token Left = C('h', M_NONE) | N(K::ArrowLeft, M_NONE) => "h";
+    token Down = C('j', M_NONE) | N(K::ArrowDown, M_NONE) => "j";
+    token Up = C('k', M_NONE) | N(K::ArrowUp, M_NONE) => "k";
+    token Right = C('l', M_NONE) | N(K::ArrowRight, M_NONE) => "l";
 
-    token Opposite = C('%', M_NONE | M_SHIFT);
+    token Opposite = C('%', M_NONE | M_SHIFT) => "%";
 
     token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
-    token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT);
+    token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT) => "";
 
-    pub grammar CreateOp: CreateOut {
+    pub grammar CreateOp: CreateOut => "c" {
         CreateOp | Accept => yield CreateOpAction::Accept;
+
+        token { C('p', M_NONE) => "p" } {}
     }
 
     pub grammar Normal: ActionOut {

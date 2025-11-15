@@ -14,7 +14,7 @@ pub(super) mod operators {
 }
 
 #[derive(Debug, PartialEq)]
-struct Shared;
+struct Shared(&'static str);
 
 #[derive(Debug, PartialEq, Kind)]
 #[kind(const OperatorKind::Create)]
@@ -23,15 +23,34 @@ enum CreateInner {
     Yielded(Arc<Shared>),
 }
 
-impl<W: NodeOps + UiOps + ?Sized> OperatorInner<W> for CreateInner {
-    fn new(cx: OperatorCx<W>) -> Self { Self::Init(CreateOpAccept::default()) }
+impl OperatorState for CreateInner {
+    fn pending_op(&self) -> Cow<'static, str> {
+        match self {
+            Self::Init(a) => a.pending_op().into(),
+            Self::Yielded(s) => s.0.into(),
+        }
+    }
+}
 
-    fn step(&mut self, key: Key, mut cx: OperatorCx<W>) {
+impl<W: NodeOps + UiOps + ?Sized> OperatorInner<W> for CreateInner {
+    fn new(count: Option<NonZeroU32>, cx: OperatorCx<W>) -> Option<Self> {
+        let accept = CreateOpAccept::default();
+
+        let None = count else {
+            cx.abort(accept.pending_op().into());
+            return None;
+        };
+
+        Some(Self::Init(accept))
+    }
+
+    fn step(&mut self, key: Key, cx: OperatorCx<W>) {
         match self {
             Self::Init(a) => {
-                let action = match a.accept(key) {
+                let (pend, out) = a.accept(key);
+                let action = match out {
                     CreateOut::Trap => {
-                        cx.abort();
+                        cx.abort(pend.into());
                         return;
                     },
                     CreateOut::Advance => return,
@@ -40,7 +59,7 @@ impl<W: NodeOps + UiOps + ?Sized> OperatorInner<W> for CreateInner {
 
                 match action {
                     CreateOpAction::Accept => {
-                        let shared = Arc::new(Shared);
+                        let shared = Arc::new(Shared(pend));
 
                         *self = Self::Yielded(Arc::clone(&shared));
                         let (widget, then) = cx.into_yielded(CreateWithType(shared), self);
@@ -49,7 +68,7 @@ impl<W: NodeOps + UiOps + ?Sized> OperatorInner<W> for CreateInner {
                     },
                 }
             },
-            Self::Yielded(_) => (),
+            Self::Yielded(..) => (),
         }
     }
 }
@@ -93,7 +112,7 @@ impl<W: NodeOps + UiOps + ?Sized>
                 cx.run_action(CreateNode(value, pos), None);
             }
 
-            cx.finish();
+            cx.finish(self.0 .0.into());
         });
     }
 }

@@ -55,7 +55,7 @@ impl Acceptor<Key> for Mode {
         }
     }
 
-    fn accept(&mut self, input: Key) -> Self::Output {
+    fn accept(&mut self, input: Key) -> (&'static str, Self::Output) {
         if matches!(
             input,
             Key::Named(
@@ -75,7 +75,7 @@ impl Acceptor<Key> for Mode {
                 _
             )
         ) {
-            return ActionOut::Advance;
+            return (self.pending_op(), ActionOut::Advance);
         }
 
         debug!("Handling keypress");

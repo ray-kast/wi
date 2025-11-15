@@ -12,7 +12,7 @@ pub use crate::{
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     mode::ModeKind,
     operators::OperatorKind,
-    status::Status,
+    status::{LastOp, Status},
 };
 
 pub mod prelude {
@@ -98,6 +98,7 @@ struct DriverInner<W: GraphWidgetTypes + ?Sized> {
     stashed_operators: Vec<Operator>,
     mode: Mode,
     last_action: Option<Action<W>>,
+    last_op: LastOp,
 }
 
 impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
@@ -113,6 +114,7 @@ impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
                 stashed_operators: vec![],
                 mode: Mode::default(),
                 last_action: None,
+                last_op: LastOp::default(),
             },
         };
 
