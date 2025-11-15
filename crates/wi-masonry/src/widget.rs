@@ -7,7 +7,7 @@ use masonry::{
         PointerButtonEvent, PointerEvent, PointerScrollEvent, StyleSet, TextEvent, Update, Widget,
     },
     kurbo::{Affine, Circle, Point, Rect, Size, Stroke, Vec2},
-    parley::{Alignment, AlignmentOptions, GenericFamily, Layout},
+    parley::{Alignment, AlignmentOptions, GenericFamily, Layout, LineHeight, StyleProperty},
     peniko::{color::OpaqueColor, BlendMode, Brush, Fill},
     vello::Scene,
 };
@@ -106,6 +106,9 @@ impl<N: Node> GraphEditor<N> {
         ) -> Layout<masonry::core::BrushIndex> {
             let mut styles = StyleSet::new(node::PORT_HEIGHT_32);
             styles.insert(GenericFamily::SystemUi.into());
+            styles.insert(StyleProperty::LineHeight(LineHeight::Absolute(
+                node::PORT_HEIGHT_32,
+            )));
             let mut layout = Layout::new();
             styles
                 .inner()
