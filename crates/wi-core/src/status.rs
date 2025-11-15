@@ -37,7 +37,7 @@ impl<W: GraphWidgetTypes + ?Sized> DriverInner<W> {
         Status {
             count: self.count.map(NonZero::get),
             mode: self.mode.kind(),
-            last_action: self.last_action.as_ref().map(Action::kind),
+            last_action: self.last_action.as_ref(false).map(Action::kind),
             current_operator: current_operator
                 .as_ref()
                 .map(|o| (o.kind(), o.pending_op())),

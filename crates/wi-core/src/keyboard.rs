@@ -116,12 +116,12 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                 }
 
                 self.count = None;
-                self.last_action = None;
+                self.last_action.hide();
 
                 false
             },
             ActionOut::Advance => {
-                self.last_action = None;
+                self.last_action.hide();
                 true
             },
             ActionOut::Modifier => false,
@@ -145,7 +145,11 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                     ActionCx::new(widget, self, W::reborrow_cx(&mut cx)),
                 );
 
-                self.last_action = (handled && loud).then(|| action.into());
+                if handled && loud {
+                    self.last_action.replace(action.into());
+                } else {
+                    self.last_action.hide();
+                }
 
                 handled
             },
@@ -154,7 +158,7 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                     count: self.count.map(NonZero::get),
                     chord: pend.into(),
                 };
-                self.last_action = None;
+                self.last_action.hide();
 
                 self.init_operator(current_operator, widget, operator, cx)
             },

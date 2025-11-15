@@ -1,7 +1,4 @@
-use std::num::{NonZero, NonZeroU32};
-
-use crate::traits::GraphWidgetTypes;
-
+mod basic;
 mod create;
 mod cursor;
 mod delete;
@@ -10,8 +7,8 @@ mod quit;
 
 pub mod all {
     pub use super::{
-        basic::*, create::actions::*, cursor::actions::*, delete::actions::*, jump::actions::*,
-        quit::actions::*,
+        basic::actions::*, create::actions::*, cursor::actions::*, delete::actions::*,
+        jump::actions::*, quit::actions::*,
     };
 }
 
@@ -49,6 +46,34 @@ mod imp {
 
     use super::prelude::*;
     use crate::{cursor::NullSelection, DriverInner};
+
+    #[derive_where(Debug; W::NodeKind, W::Point)]
+    #[derive_where(Default; )]
+    pub struct LastAction<W: GraphWidgetTypes + ?Sized> {
+        action: Option<Action<W>>,
+        hidden: bool,
+    }
+
+    impl<W: GraphWidgetTypes + ?Sized> LastAction<W> {
+        #[inline]
+        pub fn as_ref(&self, show_hidden: bool) -> Option<&Action<W>> {
+            (show_hidden || !self.hidden)
+                .then_some(self.action.as_ref())
+                .flatten()
+        }
+
+        pub fn replace(&mut self, action: Action<W>) -> Option<Action<W>> {
+            if matches!(action, Action::SimpleAction(SimpleAction::Repeat(_))) {
+                return None;
+            }
+
+            self.hidden = false;
+            self.action.replace(action)
+        }
+
+        #[inline]
+        pub fn hide(&mut self) { self.hidden = true; }
+    }
 
     pub struct ActionCx<'a, 'w: 'a, W: GraphWidgetTypes + ?Sized> {
         pub widget: &'a mut W,
@@ -101,6 +126,7 @@ mod imp {
         // Basic
         Motion(Motion),
         PushCount(PushCount),
+        Repeat(Repeat),
         SetMode(SetMode),
         ToggleDebug(ToggleDebug),
 
@@ -152,6 +178,7 @@ mod imp {
         Motion(MotionKind),
         PushCount,
         Quit,
+        Repeat,
         ToggleDebug,
         ViewCursor,
     }
@@ -172,6 +199,7 @@ mod imp {
                 Self::Motion(m) => m.name(),
                 Self::PushCount => "push count",
                 Self::Quit => "quit",
+                Self::Repeat => "repeat",
                 Self::ToggleDebug => "toggle debug",
                 Self::ViewCursor => "view cursor",
             }
@@ -268,52 +296,5 @@ mod imp {
     }
 }
 
-pub use imp::{Action, ActionCx, ActionKind, Motion, MotionKind, SimpleAction};
+pub use imp::{Action, ActionCx, ActionKind, LastAction, Motion, MotionKind, SimpleAction};
 pub(crate) use imp::{EditorAction, EditorMotion, Kind};
-
-mod basic {
-    use crate::{actions::ActionKind, mode::ModeKind};
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(ActionKind)]
-    pub struct PushCount(pub char);
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    pub struct SetMode(#[kind(ModeKind::Normal => ActionKind::ModeNormal)] pub ModeKind);
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(ActionKind)]
-    pub struct ToggleDebug;
-}
-
-impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::PushCount {
-    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        let Self(digit) = *self;
-        let digit = u32::from(digit) - u32::from('0');
-        cx.driver.count = count
-            .map_or(0, NonZero::get)
-            .checked_mul(10)
-            .and_then(|c| c.checked_add(digit))
-            .and_then(NonZero::new);
-        true
-    }
-}
-
-impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::SetMode {
-    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        let Self(m) = *self;
-        let None = count else { return false };
-
-        cx.driver.mode.change(m)
-    }
-}
-
-impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for basic::ToggleDebug {
-    fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-        let None = count else { return false };
-
-        cx.driver.debug = !cx.driver.debug;
-
-        true
-    }
-}

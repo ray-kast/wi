@@ -1,7 +1,7 @@
 use std::num::NonZeroU32;
 
 use crate::{
-    actions::Action,
+    actions::LastAction,
     mode::Mode,
     operators::{CurrentOperator, Operator},
     traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes, UiOps},
@@ -97,7 +97,7 @@ struct DriverInner<W: GraphWidgetTypes + ?Sized> {
     count: Option<NonZeroU32>,
     stashed_operators: Vec<Operator>,
     mode: Mode,
-    last_action: Option<Action<W>>,
+    last_action: LastAction<W>,
     last_op: LastOp,
 }
 
@@ -113,7 +113,7 @@ impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
                 count: None,
                 stashed_operators: vec![],
                 mode: Mode::default(),
-                last_action: None,
+                last_action: LastAction::default(),
                 last_op: LastOp::default(),
             },
         };

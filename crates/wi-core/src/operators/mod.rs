@@ -123,7 +123,7 @@ mod imp {
             );
 
             if handled && loud {
-                self.driver.last_action = Some(action.into());
+                self.driver.last_action.replace(action.into());
             }
 
             handled

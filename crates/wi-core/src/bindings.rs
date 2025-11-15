@@ -75,6 +75,7 @@ static_acceptors! {
     token Accept = C(' ', M_NONE) | N(K::Enter, M_NONE) => "\u{23ce}";
 
     token CommandOp = C(':', M_NONE | M_SHIFT) => ":";
+    token Repeat = C('.', M_NONE | M_SHIFT) => ".";
     token CreateOp = C('c', M_NONE) => "c";
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
@@ -108,6 +109,8 @@ static_acceptors! {
         }
 
         GoOp {}
+
+        Repeat => yield Repeat;
 
         extend Motion;
         extend Global;
