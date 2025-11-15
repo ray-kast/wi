@@ -106,7 +106,6 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
         }
 
         let (pend, out) = self.mode.accept(key);
-        self.last_action = None;
         match out {
             ActionOut::Trap => {
                 if self.count.is_some() || !pend.is_empty() {
@@ -115,11 +114,17 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                         chord: pend.into(),
                     };
                 }
+
                 self.count = None;
+                self.last_action = None;
 
                 false
             },
-            ActionOut::Advance => true,
+            ActionOut::Advance => {
+                self.last_action = None;
+                true
+            },
+            ActionOut::Modifier => false,
             ActionOut::Action(action) => {
                 let loud = !action.kind().is_silent();
 
@@ -140,9 +145,7 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                     ActionCx::new(widget, self, W::reborrow_cx(&mut cx)),
                 );
 
-                if handled && loud {
-                    self.last_action = Some(action.into());
-                }
+                self.last_action = (handled && loud).then(|| action.into());
 
                 handled
             },
@@ -151,6 +154,7 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                     count: self.count.map(NonZero::get),
                     chord: pend.into(),
                 };
+                self.last_action = None;
 
                 self.init_operator(current_operator, widget, operator, cx)
             },

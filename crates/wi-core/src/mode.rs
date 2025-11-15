@@ -75,7 +75,7 @@ impl Acceptor<Key> for Mode {
                 _
             )
         ) {
-            return (self.pending_op(), ActionOut::Advance);
+            return (self.pending_op(), ActionOut::Modifier);
         }
 
         debug!("Handling keypress");

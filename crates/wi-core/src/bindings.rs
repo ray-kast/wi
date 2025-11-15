@@ -31,6 +31,7 @@ pub enum ActionOut {
     Trap,
     #[shibari(advance)]
     Advance,
+    Modifier,
     #[shibari(from)]
     Action(SimpleAction),
     Operator(Operator),
