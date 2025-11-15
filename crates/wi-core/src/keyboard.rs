@@ -8,7 +8,7 @@ use crate::{
     actions::{ActionCx, EditorAction, Kind},
     bindings::{ActionOut, Key},
     continuation::Dispatch,
-    operators::{CurrentOperator, EditorOperator, OperatorCx, OperatorResult},
+    operators::{CurrentOperator, EditorOperator, Operator, OperatorCx, OperatorResult},
     traits::GraphWidget,
     DriverInner, GraphWidgetDriver, LastOp,
 };
@@ -106,12 +106,15 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
         }
 
         let (pend, out) = self.mode.accept(key);
+        self.last_action = None;
         match out {
             ActionOut::Trap => {
-                self.last_op = LastOp {
-                    count: self.count.map(NonZero::get),
-                    chord: pend.into(),
-                };
+                if self.count.is_some() || !pend.is_empty() {
+                    self.last_op = LastOp {
+                        count: self.count.map(NonZero::get),
+                        chord: pend.into(),
+                    };
+                }
                 self.count = None;
 
                 false
@@ -143,47 +146,57 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
 
                 handled
             },
-            ActionOut::Operator(mut operator) => {
+            ActionOut::Operator(operator) => {
                 self.last_op = LastOp {
                     count: self.count.map(NonZero::get),
                     chord: pend.into(),
                 };
 
-                let mut res = OperatorResult::Continue;
-                operator.init(
-                    self.count.take(),
-                    OperatorCx::new(
-                        widget,
-                        self,
-                        W::reborrow_cx(&mut cx),
-                        Dispatch::Immediate(&mut res),
-                    ),
+                self.init_operator(current_operator, widget, operator, cx)
+            },
+        }
+    }
+
+    fn init_operator(
+        &mut self,
+        current_operator: &mut CurrentOperator,
+        widget: &mut W,
+        mut operator: Operator,
+        mut cx: W::Context<'_, '_>,
+    ) -> bool {
+        let mut res = OperatorResult::Continue;
+        operator.init(
+            self.count.take(),
+            OperatorCx::new(
+                widget,
+                self,
+                W::reborrow_cx(&mut cx),
+                Dispatch::Immediate(&mut res),
+            ),
+        );
+
+        match res {
+            OperatorResult::Continue => {
+                debug!(operator = operator.kind().name(), "Pushing operator");
+                current_operator.push(operator, &mut self.stashed_operators);
+
+                true
+            },
+            OperatorResult::Finish => {
+                debug!(
+                    operator = operator.kind().name(),
+                    "Operator finished on init"
                 );
 
-                match res {
-                    OperatorResult::Continue => {
-                        debug!(operator = operator.kind().name(), "Pushing operator");
-                        current_operator.push(operator, &mut self.stashed_operators);
+                true
+            },
+            OperatorResult::Abort => {
+                debug!(
+                    operator = operator.kind().name(),
+                    "Operator aborted on init"
+                );
 
-                        true
-                    },
-                    OperatorResult::Finish => {
-                        debug!(
-                            operator = operator.kind().name(),
-                            "Operator finished on init"
-                        );
-
-                        true
-                    },
-                    OperatorResult::Abort => {
-                        debug!(
-                            operator = operator.kind().name(),
-                            "Operator aborted on init"
-                        );
-
-                        false
-                    },
-                }
+                false
             },
         }
     }
