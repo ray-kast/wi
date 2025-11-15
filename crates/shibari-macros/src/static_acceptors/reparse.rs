@@ -343,7 +343,7 @@ pub(super) fn parse_grammars(
         unused.extend(quote_spanned! { name.span() => struct #name; });
     }
 
-    for (i, (_, _, _, (tree, _))) in trees.unused_labels().enumerate() {
+    for (_, _, _, (tree, _)) in trees.unused_labels() {
         let label = tree
             .extra()
             .label
@@ -351,24 +351,12 @@ pub(super) fn parse_grammars(
             .unwrap_or_else(|| unreachable!());
         let span = label.span();
 
-        let ident = Ident::new(&format!("__{i}"), span);
-
-        unused.extend(quote_spanned! { span => fn #ident() { #label {} } });
+        unused.extend(quote_spanned! { span => const _: () = { #label {} }; });
     }
 
     if !unused.is_empty() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        static FREE: AtomicUsize = AtomicUsize::new(0);
-
-        let free = FREE.fetch_add(1, Ordering::SeqCst);
-        let id = Ident::new(
-            &format!("__shibari_static_acceptors_unused__{free}"),
-            Span::call_site(),
-        );
-
         diag.extend(quote_spanned! { Span::call_site() =>
-            #[doc(hidden)] mod #id { #unused }
+            const _: () = { mod __shibari_unused { #unused } };
         });
     }
 

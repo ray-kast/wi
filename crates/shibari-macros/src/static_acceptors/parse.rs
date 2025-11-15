@@ -6,8 +6,6 @@ use syn::{
 use crate::prelude::*;
 
 mod kw {
-    #![expect(clippy::expl_impl_clone_on_copy)]
-
     syn::custom_keyword!(extend);
     syn::custom_keyword!(goto);
     syn::custom_keyword!(grammar);

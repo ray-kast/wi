@@ -106,7 +106,9 @@ fn emit_acceptor(
         accept_ty: make_accept_ty(ident, span),
         state_ty: Ident::new(&format!("{ident}State"), span),
     };
+    let mod_name = Ident::new("__shibari_static_acceptors", span);
     let mut conv_state = ConvertState {
+        mod_path: quote_spanned! { span => #mod_name:: },
         items: TokenStream::new(),
         names: HashMap::new(),
     };
@@ -187,7 +189,12 @@ fn emit_acceptor(
                     reason = "Generated code"
                 )]
 
-                #accept_items
+                mod #mod_name {
+                    #[allow(unused_imports, clippy::wildcard_imports)]
+                    use super::*;
+
+                    #accept_items
+                }
 
                 let Self(__state) = self;
                 loop {
@@ -246,6 +253,7 @@ fn emit_delta(
 }
 
 struct ConvertState {
+    mod_path: TokenStream,
     items: TokenStream,
     /// Maps (conversion, target) to emitted function name
     names: HashMap<(reparse::ExtendConversion, Ident), Ident>,
@@ -308,7 +316,7 @@ fn emit_conversion<'a>(
             .names
             .entry((conv.clone(), target_accept.clone()))
             .or_insert_with(|| {
-                let name = Ident::new(&format!("__conv{free}"), span);
+                let name = Ident::new(&format!("conv{free}"), span);
 
                 let (param, body) = match &conv.kind {
                     reparse::ExtendConversionKind::From => (
@@ -319,7 +327,7 @@ fn emit_conversion<'a>(
                 };
 
                 state.items.extend(quote_spanned! { span =>
-                    fn #name(
+                    pub fn #name(
                         #param: <#source_accept as #acceptor_path<#input_ty>>::Output,
                     ) -> <#target_accept as #acceptor_path<#input_ty>>::Output #body
                 });
@@ -327,7 +335,8 @@ fn emit_conversion<'a>(
                 name
             });
 
-        converted = quote_spanned! { span => #ident(#converted) };
+        let mod_path = &state.mod_path;
+        converted = quote_spanned! { span => #mod_path #ident(#converted) };
         source_accept_opt = target_accept_opt;
     }
 

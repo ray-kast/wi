@@ -330,7 +330,7 @@ fn run_variant(var: Variant, kind_ty: Option<&Type>, diag: &mut TokenStream) -> 
     let capture_none = match var.fields {
         Fields::Named(_) => quote_spanned! { span => { .. } },
         Fields::Unnamed(_) => quote_spanned! { span => (..) },
-        Fields::Unit => quote_spanned! { span => },
+        Fields::Unit => TokenStream::new(),
     };
 
     let (capture, expr) = 'found: {
