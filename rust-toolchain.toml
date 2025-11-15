@@ -1,0 +1,12 @@
+[toolchain]
+channel = "1.91.0" # TODO: add an update check
+components = [
+  "cargo",
+  "clippy",
+  "rust-analyzer",
+  "rust-src",
+  "rust-std",
+  "rustc",
+  "rustfmt",
+]
+profile = "minimal"

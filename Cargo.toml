@@ -48,7 +48,3 @@ pedantic = { level = "warn", priority = -1 }
 style = { level = "deny", priority = -1 }
 suspicious = { level = "deny", priority = -1 }
 # cargo = { level = "warn", priority = -1 }
-
-[profile.release]
-lto = "thin"
-strip = true
