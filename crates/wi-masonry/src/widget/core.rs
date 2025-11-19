@@ -417,6 +417,14 @@ impl<N: Node> CursorOps for EditorCore<N> {
 }
 
 impl<N: Node> EdgeOps for EditorCore<N> {
+    fn create_edge(&mut self, from: WPort<Self>, to: WPort<Self>, mut cx: Self::Context<'_, '_>) {
+        make_mut!(self.graph).add_edge(from.0, to.0, Edge {
+            from_port: from.1,
+            to_port: to.1,
+        });
+        cx.request_render();
+    }
+
     fn delete_edge(
         &mut self,
         from: &WPort<Self>,

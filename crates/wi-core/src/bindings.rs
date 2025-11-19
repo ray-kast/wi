@@ -4,15 +4,16 @@ use Key::{Char as C, Named as N};
 use NamedKey as K;
 
 use crate::{
-    actions::{prelude::*, Motion, SimpleAction},
+    actions::{prelude::*, SimpleAction},
     mode::ModeKind,
     modifiers::{M_CTRL, M_NONE, M_SHIFT, M_TCTL},
     operators::prelude::*,
-    Step,
+    Side, Step,
 };
 
 pub enum CreateOpAction {
     Accept,
+    Side(Side),
 }
 
 #[derive(AcceptorOutput)]
@@ -25,7 +26,7 @@ pub enum CreateOut {
     CreateOpAction(CreateOpAction),
 }
 
-#[derive(Debug, AcceptorOutput)]
+#[derive(Debug, Clone, Copy, AcceptorOutput)]
 pub enum ActionOut {
     #[shibari(trap)]
     Trap,
@@ -37,29 +38,13 @@ pub enum ActionOut {
     Operator(Operator),
 }
 
-#[inline]
-fn dispatch_op<T: Into<Operator>>(op: T) -> ActionOut { ActionOut::Operator(op.into()) }
-
-#[derive(Debug, Clone, Copy, AcceptorOutput)]
-pub enum MotionOut {
-    #[shibari(trap)]
-    Trap,
-    #[shibari(advance)]
-    Advance,
-    #[shibari(from)]
-    Motion(Motion),
-}
-
-impl From<MotionOut> for ActionOut {
+impl From<Operator> for ActionOut {
     #[inline]
-    fn from(value: MotionOut) -> Self {
-        match value {
-            MotionOut::Trap => Self::Trap,
-            MotionOut::Advance => Self::Advance,
-            MotionOut::Motion(m) => Self::Action(m.into()),
-        }
-    }
+    fn from(value: Operator) -> Self { Self::Operator(value) }
 }
+
+#[inline]
+fn op<T: Into<Operator>>(op: T) -> Operator { op.into() }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -79,6 +64,8 @@ static_acceptors! {
     token CreateOp = C('c', M_NONE) => "c";
     token DeleteOp = C('d', M_NONE) => "d";
     token GoOp = C('g', M_NONE) => "g";
+    token Input = C('i', M_NONE) => "i";
+    token Output = C('o', M_NONE) => "o";
     token ViewOp = C('z', M_NONE) => "z";
     token Quit = C('q', M_NONE) => "q";
     token CtrlQuit = C('q', M_CTRL) => "\u{2303}q";
@@ -95,14 +82,15 @@ static_acceptors! {
     token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
     token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT) => "";
 
-    pub grammar CreateOp: CreateOut => "c" {
+    pub grammar CreateOp: CreateOut {
         CreateOp | Accept => yield CreateOpAction::Accept;
 
-        token { C('p', M_NONE) => "p" } {}
+        Input => yield CreateOpAction::Side(Side::In);
+        Output => yield CreateOpAction::Side(Side::Out);
     }
 
     pub grammar Normal: ActionOut {
-        CreateOp => yield dispatch_op(Create::default());
+        CreateOp => yield op(Create);
 
         DeleteOp {
             DeleteOp => yield DeleteAtCursor;
@@ -116,11 +104,19 @@ static_acceptors! {
         extend Global;
     }
 
-    grammar Motion: MotionOut {
+    grammar Motion: ActionOut {
         Left => yield StepCursor(Step::Left);
         Down => yield StepCursor(Step::Down);
         Up => yield StepCursor(Step::Up);
         Right => yield StepCursor(Step::Right);
+
+        Input => yield op(JumpToPort::CurrentNode(Side::In));
+        Output => yield op(JumpToPort::CurrentNode(Side::Out));
+
+        GoOp {
+            Input => yield op(JumpToPort::Global(Side::In));
+            Output => yield op(JumpToPort::Global(Side::Out));
+        }
 
         Opposite => yield GoToOpposite;
     }

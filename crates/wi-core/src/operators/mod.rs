@@ -1,7 +1,8 @@
 mod create;
+mod jump;
 
 pub mod all {
-    pub use super::create::operators::*;
+    pub use super::{create::operators::*, jump::operators::*};
 }
 
 pub mod prelude {
@@ -10,7 +11,8 @@ pub mod prelude {
     pub use shibari::Acceptor;
 
     pub(crate) use super::{
-        all::*, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind, OperatorState,
+        all::*, EditorOperator, OpYielded, Operator, OperatorCx, OperatorKind, OperatorState,
+        StartCx, StartError, StartOperator, Started,
     };
     pub use crate::{
         actions::prelude::*,
@@ -20,38 +22,56 @@ pub mod prelude {
 }
 
 mod imp {
-    use std::{hash::Hash, mem};
+    use std::{fmt, hash::Hash, mem};
 
     use wi_macros::impl_enum;
 
     use super::prelude::*;
     use crate::{actions::Action, DriverInner};
 
-    #[derive(Debug, Default)]
-    pub struct CurrentOperator(Option<Operator>);
+    #[derive_where(Debug; W::NodeId, W::PortId)]
+    #[derive_where(Default; )]
+    pub(crate) struct CurrentOperator<W: GraphWidgetTypes + ?Sized>(
+        Option<(Cow<'static, str>, Started<W>)>,
+    );
 
-    impl CurrentOperator {
+    impl<W: GraphWidgetTypes + ?Sized> CurrentOperator<W> {
         #[inline]
-        pub fn as_ref(&self) -> Option<&Operator> { self.0.as_ref() }
+        pub fn status(&self) -> Option<(&Cow<'static, str>, &Started<W>)> {
+            self.0.as_ref().map(|(c, o)| (c, o))
+        }
 
         #[inline]
-        pub fn as_mut(&mut self) -> Option<&mut Operator> { self.0.as_mut() }
+        pub fn as_ref(&self) -> Option<&Started<W>> { self.0.as_ref().map(|(_, o)| o) }
 
-        pub fn push(&mut self, operator: Operator, stashed: &mut Vec<Operator>) -> &mut Operator {
+        #[inline]
+        pub fn as_mut(&mut self) -> Option<&mut Started<W>> { self.0.as_mut().map(|(_, o)| o) }
+
+        pub fn push(
+            &mut self,
+            operator: Started<W>,
+            chord: Cow<'static, str>,
+            stashed: &mut Vec<(Cow<'static, str>, Started<W>)>,
+        ) -> (&Cow<'static, str>, &mut Started<W>) {
             match &mut self.0 {
                 o @ None => {
                     debug_assert!(stashed.is_empty());
-                    *o = Some(operator);
-                    o.as_mut().unwrap_or_else(|| unreachable!())
+                    *o = Some((chord, operator));
+                    let (chord, operator) = o.as_mut().unwrap_or_else(|| unreachable!());
+                    (chord, operator)
                 },
                 Some(o) => {
-                    stashed.push(mem::replace(o, operator));
-                    o
+                    stashed.push(mem::replace(o, (chord, operator)));
+                    let (chord, operator) = o;
+                    (chord, operator)
                 },
             }
         }
 
-        pub fn pop(&mut self, stashed: &mut Vec<Operator>) -> Option<Operator> {
+        pub fn pop(
+            &mut self,
+            stashed: &mut Vec<(Cow<'static, str>, Started<W>)>,
+        ) -> Option<(Cow<'static, str>, Started<W>)> {
             match self.0.take() {
                 None => {
                     debug_assert!(stashed.is_empty());
@@ -65,14 +85,14 @@ mod imp {
         }
     }
 
-    pub type OpDispatch<'a, 'c> = Dispatch<&'c mut OperatorResult, &'c mut CurrentOperator>;
-    pub type OpYielded<'a, 'c, Y> = (OpDispatch<'a, 'c>, Y);
+    pub type OpDispatch<'a, 'c, W> = Dispatch<&'c mut OperatorResult, &'c mut CurrentOperator<W>>;
+    pub type OpYielded<'a, 'c, W, Y> = (OpDispatch<'a, 'c, W>, Y);
 
     pub struct OperatorCx<'a, 'c, 'w: 'a, W: GraphWidgetTypes + ?Sized> {
         widget: &'a mut W,
         driver: &'a mut DriverInner<W>,
         inner: W::Context<'a, 'w>,
-        dispatch: OpDispatch<'a, 'c>,
+        dispatch: OpDispatch<'a, 'c, W>,
     }
 
     impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized> OperatorCx<'a, 'c, 'w, W> {
@@ -80,7 +100,7 @@ mod imp {
             widget: &'a mut W,
             driver: &'a mut DriverInner<W>,
             inner: W::Context<'a, 'w>,
-            dispatch: OpDispatch<'a, 'c>,
+            dispatch: OpDispatch<'a, 'c, W>,
         ) -> Self {
             Self {
                 widget,
@@ -97,14 +117,14 @@ mod imp {
         pub const fn driver(&self) -> &DriverInner<W> { self.driver }
 
         #[inline]
-        pub const fn dispatch(&self) -> &OpDispatch<'a, 'c> { &self.dispatch }
+        pub const fn dispatch(&self) -> &OpDispatch<'a, 'c, W> { &self.dispatch }
 
         #[inline]
         pub fn into_yielded<Y, C>(
             self,
             then: C,
             yielded: Y,
-        ) -> (&'a mut W, Yielded<'a, 'w, W, OpYielded<'a, 'c, Y>, C>) {
+        ) -> (&'a mut W, Yielded<'a, 'w, W, OpYielded<'a, 'c, W, Y>, C>) {
             (
                 self.widget,
                 Yielded::new(then, self.driver, (self.dispatch, yielded), self.inner),
@@ -131,26 +151,60 @@ mod imp {
 
         #[inline]
         pub fn abort(mut self, pending: Cow<'static, str>) {
+            self.driver.last_op.chord = pending;
             match self.dispatch {
                 Dispatch::Immediate(ref mut r) => **r = OperatorResult::Abort,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
-                    self.driver.last_op.chord = pending;
                 },
             }
         }
 
         #[inline]
         pub fn finish(mut self, pending: Cow<'static, str>) {
+            self.driver.last_op.chord = pending;
             match self.dispatch {
                 Dispatch::Immediate(ref mut r) => **r = OperatorResult::Finish,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
-                    self.driver.last_op.chord = pending;
                 },
             }
         }
     }
+
+    pub struct StartCx<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized>(OperatorCx<'a, 'c, 'w, W>);
+
+    impl<'a, 'c, 'w, W: GraphWidgetTypes + ?Sized> StartCx<'a, 'c, 'w, W> {
+        #[inline]
+        pub const fn new(
+            widget: &'a mut W,
+            driver: &'a mut DriverInner<W>,
+            inner: W::Context<'a, 'w>,
+            dispatch: OpDispatch<'a, 'c, W>,
+        ) -> Self {
+            Self(OperatorCx::new(widget, driver, inner, dispatch))
+        }
+
+        #[inline]
+        pub fn into_started(self) -> OperatorCx<'a, 'c, 'w, W> { self.0 }
+
+        #[inline]
+        pub fn into_aborted(self) -> StartError {
+            let _ = self;
+            StartError(())
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct StartError(());
+
+    impl fmt::Display for StartError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("Operator did not start")
+        }
+    }
+
+    impl std::error::Error for StartError {}
 
     #[derive(Debug, Clone, Copy)]
     pub enum OperatorResult {
@@ -159,48 +213,70 @@ mod imp {
         Abort,
     }
 
+    pub(crate) trait StartOperator<W: GraphWidgetTypes + ?Sized>: Sized {
+        type Started;
+
+        fn start_op(
+            &self,
+            count: Option<NonZeroU32>,
+            cx: StartCx<W>,
+        ) -> Result<Self::Started, StartError>;
+    }
+
     pub(crate) trait OperatorState: Kind<OperatorKind> {
         fn pending_op(&self) -> Cow<'static, str>;
     }
 
     pub(crate) trait EditorOperator<W: GraphWidgetTypes + ?Sized>: OperatorState {
-        fn init(&mut self, count: Option<NonZeroU32>, cx: OperatorCx<W>);
-
-        fn step(&mut self, key: Key, cx: OperatorCx<W>);
-    }
-
-    pub trait OperatorInner<W: GraphWidgetTypes + ?Sized>: Sized {
-        fn new(count: Option<NonZeroU32>, cx: OperatorCx<W>) -> Option<Self>;
-
         fn step(&mut self, key: Key, cx: OperatorCx<W>);
     }
 
     #[impl_enum]
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum Operator {
+        // From create
         Create(Create),
+
+        // From jump
+        JumpToPort(JumpToPort),
     }
 
     #[impl_enum]
-    impl Kind<OperatorKind> for Operator {
+    #[derive_where(Debug; W::NodeId, W::PortId)]
+    pub(crate) enum Started<W: GraphWidgetTypes + ?Sized> {
+        Create(super::create::CreateStarted<W>),
+        Jump(super::jump::JumpStarted<W>),
+    }
+
+    #[impl_enum]
+    impl<W: GraphWidget + ?Sized> StartOperator<W> for Operator {
+        type Started = Started<W>;
+
+        fn start_op(
+            &self,
+            count: Option<NonZeroU32>,
+            cx: StartCx<W>,
+        ) -> Result<Self::Started, StartError> {
+            dispatch_map!(|s| s.map(Into::into); self, count, cx)
+        }
+    }
+
+    #[impl_enum]
+    impl<W: GraphWidgetTypes + ?Sized> Kind<OperatorKind> for Started<W> {
         fn kind(&self) -> OperatorKind { dispatch!(self) }
     }
 
     #[impl_enum]
-    impl OperatorState for Operator {
+    impl<W: GraphWidgetTypes + ?Sized> OperatorState for Started<W> {
         fn pending_op(&self) -> Cow<'static, str> { dispatch!(self) }
     }
 
     #[impl_enum]
-    impl<W: GraphWidget + ?Sized> EditorOperator<W> for Operator {
-        fn init(&mut self, count: Option<NonZeroU32>, cx: OperatorCx<W>) {
-            dispatch!(self, count, cx)
-        }
-
+    impl<W: GraphWidget + ?Sized> EditorOperator<W> for Started<W> {
         fn step(&mut self, key: Key, cx: OperatorCx<W>) { dispatch!(self, key, cx) }
     }
 
-    impl Operator {
+    impl<W: GraphWidgetTypes + ?Sized> Started<W> {
         #[inline]
         #[must_use]
         pub fn kind(&self) -> OperatorKind { Kind::kind(self) }
@@ -209,6 +285,7 @@ mod imp {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum OperatorKind {
         Create,
+        JumpToPort,
     }
 
     impl OperatorKind {
@@ -216,72 +293,11 @@ mod imp {
         pub const fn name(self) -> &'static str {
             match self {
                 Self::Create => "create",
+                Self::JumpToPort => "jump to port",
             }
         }
     }
 }
 
-pub use imp::{
-    CurrentOperator, OpYielded, Operator, OperatorCx, OperatorInner, OperatorKind, OperatorResult,
-};
-pub(crate) use imp::{EditorOperator, OperatorState};
-
-macro_rules! operator {
-    (
-        #[uninit_kind = $uninit:ident]
-        $(#$attr:tt)*
-        $vis:vis struct $op:ident($inner_vis:vis $inner:ty);
-    ) => {
-        $(#$attr)*
-        $vis struct $op($inner_vis Option<$inner>);
-
-        impl crate::actions::Kind<crate::operators::OperatorKind> for $op {
-            fn kind(&self) -> crate::operators::OperatorKind {
-                if let Some(ref inner) = self.0 {
-                    <$inner as crate::actions::Kind<crate::operators::OperatorKind>>::kind(
-                        inner
-                    )
-                } else {
-                    #[allow(unused_imports)]
-                    use crate::operators::{OperatorKind, OperatorKind::*};
-                    $uninit
-                }
-            }
-        }
-
-        impl crate::operators::OperatorState for $op {
-            fn pending_op(&self) -> ::std::borrow::Cow<'static, str> {
-                if let Some(ref inner) = self.0 {
-                    <$inner as crate::operators::OperatorState>::pending_op(inner)
-                } else {
-                    ::std::borrow::Cow::Borrowed("")
-                }
-            }
-        }
-
-        impl<W: crate::traits::GraphWidget + ?Sized> crate::operators::EditorOperator<W> for $op {
-            fn init(
-                &mut self,
-                count: Option<::core::num::NonZeroU32>,
-                cx: crate::operators::OperatorCx<W>,
-            ) {
-                if let Some(ref inner) = self.0 {
-                    cx.abort(
-                        <$inner as crate::operators::OperatorState>::pending_op(inner)
-                    );
-                    return;
-                }
-
-                self.0 = <$inner as crate::operators::OperatorInner<W>>::new(count, cx);
-            }
-
-            fn step(&mut self, key: crate::bindings::Key, cx: crate::operators::OperatorCx<W>) {
-                let Some(ref mut inner) = self.0 else { unreachable!() };
-
-                <$inner as crate::operators::OperatorInner<W>>::step(inner, key, cx);
-            }
-        }
-    };
-}
-
-pub(crate) use operator;
+pub(crate) use imp::{CurrentOperator, EditorOperator, OperatorState, StartOperator, Started};
+pub use imp::{OpYielded, Operator, OperatorCx, OperatorKind, OperatorResult, StartCx, StartError};

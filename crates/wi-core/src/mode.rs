@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use keyboard_types::NamedKey;
 use shibari::Acceptor;
 use tracing::debug;
@@ -49,13 +51,13 @@ impl From<Mode> for ModeKind {
 impl Acceptor<Key> for Mode {
     type Output = ActionOut;
 
-    fn pending_op(&self) -> &'static str {
+    fn pending_op(&self) -> Cow<'static, str> {
         match self {
             Self::Normal(a) => a.pending_op(),
         }
     }
 
-    fn accept(&mut self, input: Key) -> (&'static str, Self::Output) {
+    fn accept(&mut self, input: Key) -> (Cow<'static, str>, Self::Output) {
         if matches!(
             input,
             Key::Named(

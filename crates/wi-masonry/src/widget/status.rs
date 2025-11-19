@@ -7,7 +7,7 @@ use masonry::{
     theme::{DISABLED_TEXT_COLOR, TEXT_COLOR},
     widgets::{Flex, Label, SizedBox},
 };
-use wi_core::{LastOp, ModeKind, Status};
+use wi_core::{CurrentOperatorStatus, LastChord, ModeKind, Status};
 
 pub struct RenderedStatus {
     mode: Cow<'static, str>,
@@ -25,7 +25,7 @@ impl RenderedStatus {
             last_action,
             current_operator,
             pending_op,
-            last_op,
+            last_chord: last_op,
             debug: _,
         } = status;
         let mut chord = String::new();
@@ -43,9 +43,15 @@ impl RenderedStatus {
             ModeKind::Normal => "Normal",
         });
 
-        if let Some((kind, pending)) = current_operator {
-            mode = format!("{mode} \u{2014} {}", kind.name()).into();
-            chord.push_str(&pending);
+        if let Some(CurrentOperatorStatus {
+            operator_chord,
+            operator,
+            pending_op,
+        }) = current_operator
+        {
+            mode = format!("{mode} \u{2014} {}", operator.name()).into();
+            chord.push_str(&operator_chord);
+            chord.push_str(&pending_op);
             default_mode = false;
         }
 
@@ -56,13 +62,22 @@ impl RenderedStatus {
         };
 
         let chord_brush = if chord.is_empty() {
-            let LastOp {
+            let LastChord {
                 count,
+                operator_prefix,
                 chord: last_chord,
             } = last_op;
 
             if let Some(count) = count {
-                write!(chord, "{count}{last_chord}").unwrap();
+                write!(
+                    chord,
+                    "{count}{}{last_chord}",
+                    operator_prefix.as_deref().unwrap_or("")
+                )
+                .unwrap();
+            } else if let Some(prefix) = operator_prefix {
+                chord = prefix.into_owned();
+                write!(chord, "{last_chord}").unwrap();
             } else {
                 chord = last_chord.into_owned();
             }

@@ -2,21 +2,23 @@ mod basic;
 mod create;
 mod cursor;
 mod delete;
-mod jump;
 mod quit;
 
 pub mod all {
     pub use super::{
         basic::actions::*, create::actions::*, cursor::actions::*, delete::actions::*,
-        jump::actions::*, quit::actions::*,
+        quit::actions::*,
     };
 }
 
 pub mod prelude {
     pub use std::num::{NonZero, NonZeroU32};
 
-    pub(crate) use super::{all::*, ActionCx, EditorAction, EditorMotion, Kind};
-    pub use crate::{cursor::Selection, traits::*};
+    pub use derive_where::derive_where;
+    pub use wi_macros::Kind;
+
+    pub(crate) use super::{all::*, ActionCx, ActionKind, EditorAction, Kind};
+    pub use crate::traits::*;
 
     pub fn run_with_count(
         count: Option<NonZeroU32>,
@@ -45,9 +47,9 @@ mod imp {
     use wi_macros::impl_enum;
 
     use super::prelude::*;
-    use crate::{cursor::NullSelection, DriverInner};
+    use crate::DriverInner;
 
-    #[derive_where(Debug; W::NodeKind, W::Point)]
+    #[derive_where(Debug; W::NodeId, W::PortId, W::NodeKind, W::Point)]
     #[derive_where(Default; )]
     pub struct LastAction<W: GraphWidgetTypes + ?Sized> {
         action: Option<Action<W>>,
@@ -112,11 +114,13 @@ mod imp {
     }
 
     #[impl_enum]
-    #[derive_where(Debug, Clone, Copy, PartialEq, Eq, Hash; W::NodeKind, W::Point)]
+    #[derive_where(Debug, Clone, Copy, PartialEq, Eq, Hash;
+        W::NodeId, W::PortId, W::NodeKind, W::Point)]
     pub enum Action<W: GraphWidgetTypes + ?Sized> {
         SimpleAction(SimpleAction),
 
         // From create
+        CreateEdge(CreateEdge<W>),
         CreateNode(CreateNode<W>),
     }
 
@@ -124,13 +128,14 @@ mod imp {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum SimpleAction {
         // Basic
-        Motion(Motion),
         PushCount(PushCount),
         Repeat(Repeat),
         SetMode(SetMode),
         ToggleDebug(ToggleDebug),
 
         // From cursor
+        GoToOpposite(GoToOpposite),
+        StepCursor(StepCursor),
         ViewCursor(ViewCursor),
 
         // From delete
@@ -172,20 +177,20 @@ mod imp {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum ActionKind {
+        CreateEdge,
         CreateNode,
         DeleteAtCursor,
+        GoToOpposite,
         ModeNormal,
-        Motion(MotionKind),
         PushCount,
         Quit,
         Repeat,
+        StepDown,
+        StepLeft,
+        StepRight,
+        StepUp,
         ToggleDebug,
         ViewCursor,
-    }
-
-    impl From<MotionKind> for ActionKind {
-        #[inline]
-        fn from(value: MotionKind) -> Self { Self::Motion(value) }
     }
 
     impl ActionKind {
@@ -193,13 +198,18 @@ mod imp {
         #[must_use]
         pub fn name(self) -> &'static str {
             match self {
+                Self::CreateEdge => "create edge",
                 Self::CreateNode => "create node",
                 Self::DeleteAtCursor => "delete at cursor",
+                Self::GoToOpposite => "go to opposite",
                 Self::ModeNormal => "normal mode",
-                Self::Motion(m) => m.name(),
                 Self::PushCount => "push count",
                 Self::Quit => "quit",
                 Self::Repeat => "repeat",
+                Self::StepDown => "step down",
+                Self::StepLeft => "step left",
+                Self::StepRight => "step right",
+                Self::StepUp => "step up",
                 Self::ToggleDebug => "toggle debug",
                 Self::ViewCursor => "view cursor",
             }
@@ -208,93 +218,13 @@ mod imp {
         #[inline]
         #[must_use]
         pub fn is_silent(self) -> bool {
-            match self {
-                Self::Motion(m) => m.is_silent(),
-                Self::PushCount => true,
-                _ => false,
-            }
-        }
-    }
-
-    pub(crate) trait EditorMotion<W: GraphWidgetTypes + ?Sized, S: Selection>:
-        Kind<MotionKind>
-    {
-        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool;
-    }
-
-    impl<T: Kind<MotionKind>> Kind<ActionKind> for T {
-        #[inline]
-        fn kind(&self) -> ActionKind { ActionKind::Motion(Kind::<MotionKind>::kind(self)) }
-    }
-
-    impl<W: GraphWidgetTypes + ?Sized, T: EditorMotion<W, NullSelection>> EditorAction<W> for T {
-        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>) -> bool {
-            EditorMotion::process(self, count, cx, NullSelection)
-        }
-    }
-
-    #[impl_enum]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum Motion {
-        // From cursor
-        GoToOpposite(GoToOpposite),
-        StepCursor(StepCursor),
-
-        // From jump
-        JumpToPort(JumpToPort),
-    }
-
-    #[impl_enum]
-    impl Kind<MotionKind> for Motion {
-        fn kind(&self) -> MotionKind { dispatch!(self) }
-    }
-
-    #[impl_enum]
-    impl<W: CursorOps + UiOps + ?Sized, S: Selection> EditorMotion<W, S> for Motion {
-        #[inline]
-        fn process(&self, count: Option<NonZeroU32>, cx: ActionCx<W>, selection: S) -> bool {
-            dispatch!(self, count, cx, selection)
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum MotionKind {
-        GoToOpposite,
-        JumpToInput,
-        JumpToOutput,
-        JumpToPort,
-        StepDown,
-        StepLeft,
-        StepRight,
-        StepUp,
-    }
-
-    impl MotionKind {
-        #[inline]
-        #[must_use]
-        pub fn name(self) -> &'static str {
-            match self {
-                Self::GoToOpposite => "go to opposite",
-                Self::JumpToInput => "jump to input",
-                Self::JumpToOutput => "jump to output",
-                Self::JumpToPort => "jump to port",
-                Self::StepDown => "step down",
-                Self::StepLeft => "step left",
-                Self::StepRight => "step right",
-                Self::StepUp => "step up",
-            }
-        }
-
-        #[inline]
-        #[must_use]
-        pub fn is_silent(self) -> bool {
             matches!(
                 self,
-                Self::StepDown | Self::StepLeft | Self::StepRight | Self::StepUp
+                Self::PushCount | Self::StepDown | Self::StepLeft | Self::StepRight | Self::StepUp
             )
         }
     }
 }
 
-pub use imp::{Action, ActionCx, ActionKind, LastAction, Motion, MotionKind, SimpleAction};
-pub(crate) use imp::{EditorAction, EditorMotion, Kind};
+pub use imp::{Action, ActionCx, ActionKind, LastAction, SimpleAction};
+pub(crate) use imp::{EditorAction, Kind};

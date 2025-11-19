@@ -1,10 +1,7 @@
-use std::{collections::VecDeque, fmt, rc::Rc};
+use std::{collections::VecDeque, hash::Hash};
 
-use hashbrown::HashMap;
-use indexmap::{
-    map::{Entry, RawEntryApiV1},
-    IndexMap,
-};
+use hashbrown::{hash_map::Entry as HashEntry, HashMap};
+use indexmap::{map::Entry as IndexEntry, IndexMap};
 use smallvec::SmallVec;
 
 use super::{Delta, DeltaKind, SparseState, SparseTable, StateId};
@@ -39,14 +36,15 @@ struct Path {
     toks: SmallVec<[TokenId; 2]>,
 }
 
-struct ResolvedExtend<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+#[derive(Debug)]
+struct PathData<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
     root: &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
     tree: &'tree Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
     conversion: ConversionPath<'tree, ExtendConversion>,
 }
 
 impl<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> Clone
-    for ResolvedExtend<'_, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
+    for PathData<'_, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
 {
     fn clone(&self) -> Self {
         Self {
@@ -57,51 +55,46 @@ impl<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> Clone
     }
 }
 
-impl<
-        Output,
-        ExtendConversion: fmt::Debug,
-        RootExtra: fmt::Debug,
-        LeafExtra,
-        TreeExtra: fmt::Debug,
-    > fmt::Debug for ResolvedExtend<'_, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ResolvedExtend")
-            .field("root", self.root.extra())
-            .field("tree", self.tree.extra())
-            .field("conversion", &self.conversion)
-            .finish()
-    }
-}
+type PathSet<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> =
+    IndexMap<Path, PathData<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>;
 
-type ExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> = IndexMap<
-    Path,
-    ResolvedExtend<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+type PathDeltaMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> = IndexMap<
+    TokenId,
+    LeafOrBranch<PathDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>,
 >;
-type RcExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> =
-    Rc<ExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>>;
 
 #[derive(Debug)]
-struct ResolvedDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
-    next: RcExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
-    output: Option<&'tree Output>,
-    conversion: ConversionPath<'tree, ExtendConversion>,
+struct PathDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+    next: PathSet<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    output: Option<TreeOutput<'tree, Output, ExtendConversion>>,
+}
+
+struct PathSetDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+    by_token: PathDeltaMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    default_delta: PathDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
 }
 
 impl<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
-    ResolvedDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
+    PathDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>
 {
-    fn into_kind(self) -> DeltaKind<TreeOutput<'tree, Output, ExtendConversion>> {
-        let Self {
-            next: _,
-            output,
-            conversion,
-        } = self;
-        output.map_or(DeltaKind::Continue, |output| {
-            DeltaKind::Yield(TreeOutput { output, conversion })
-        })
+    fn build(
+        self,
+        state_ids: &HashMap<SmallVec<[Path; 1]>, StateId>,
+    ) -> Delta<TreeOutput<'tree, Output, ExtendConversion>> {
+        let Self { next, output } = self;
+        Delta {
+            next: *state_ids
+                .get(&path_set_id(&next))
+                .unwrap_or_else(|| unreachable!()),
+            kind: output.map_or(DeltaKind::Continue, DeltaKind::Yield),
+        }
     }
 }
+
+type StatesByPath<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> = IndexMap<
+    SmallVec<[Path; 1]>,
+    PathSetDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+>;
 
 #[derive(Debug)]
 enum LeafOrBranch<T> {
@@ -125,48 +118,116 @@ impl<T> LeafOrBranch<T> {
     }
 }
 
-#[allow(clippy::type_complexity)]
-struct PathClosures<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
-    closed: IndexMap<
-        Path,
-        RcExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
-    >,
-    scratch: ExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+#[inline]
+fn path_set_id<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>(
+    set: &PathSet<'_, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+) -> SmallVec<[Path; 1]> {
+    set.keys().cloned().collect()
 }
 
-impl<
-        Output: std::fmt::Debug,
-        ExtendConversion: std::fmt::Debug,
-        TokenDef,
-        RootExtra: std::fmt::Debug,
-        LeafExtra: std::fmt::Debug,
-        TreeExtra: std::fmt::Debug,
-    > TreeMap<Output, ExtendConversion, TokenDef, RootExtra, LeafExtra, TreeExtra>
+impl<Output, ExtendConversion: Eq + Hash, TokenDef, RootExtra, LeafExtra, TreeExtra>
+    TreeMap<Output, ExtendConversion, TokenDef, RootExtra, LeafExtra, TreeExtra>
 {
-    #[must_use]
     pub fn flatten<
-        F: FnMut(&TreeStatePath<TokenDef, RootExtra, TreeExtra>) -> StateExtra,
+        'tree,
         StateExtra,
+        F: FnMut(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
     >(
-        &self,
+        &'tree self,
         mut extra: F,
-    ) -> IndexMap<RootId, SparseTable<TokenId, TreeOutput<'_, Output, ExtendConversion>, StateExtra>>
-    {
-        let mut closures = PathClosures {
-            closed: IndexMap::new(),
-            scratch: IndexMap::new(),
-        };
-
+    ) -> HashMap<
+        RootId,
+        SparseTable<TokenId, TreeOutput<'tree, Output, ExtendConversion>, StateExtra>,
+    > {
         self.root_ids()
-            .map(|id| self.flatten_root(id, &mut extra, &mut closures))
+            .map(|i| {
+                (
+                    i,
+                    self.flatten_root(i, &mut extra)
+                        .unwrap_or_else(|| unreachable!()),
+                )
+            })
             .collect()
     }
 
-    fn flatten_root<'tree, StateExtra>(
+    #[must_use]
+    pub fn flatten_root<
+        'tree,
+        StateExtra,
+        F: FnMut(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
+    >(
         &'tree self,
         id: RootId,
-        mut extra: impl FnMut(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
-        closures: &mut PathClosures<
+        extra: F,
+    ) -> Option<SparseTable<TokenId, TreeOutput<'tree, Output, ExtendConversion>, StateExtra>> {
+        let table_root_id = id; // Better name
+        let table_root = self.root(table_root_id)?;
+        let mut q: VecDeque<IndexMap<_, _>> = [[(
+            Path {
+                root: table_root_id,
+                toks: SmallVec::new_const(),
+            },
+            PathData {
+                root: table_root,
+                tree: table_root,
+                conversion: SmallVec::new_const(),
+            },
+        )]
+        .into_iter()
+        .collect()]
+        .into_iter()
+        .collect();
+
+        let mut path_closures = HashMap::new();
+        let mut states_by_path = IndexMap::new();
+
+        while let Some(mut set) = q.pop_front() {
+            let HashEntry::Vacant(closure) = path_closures.entry(path_set_id(&set)) else {
+                continue;
+            };
+
+            self.close_path_set(&mut set);
+
+            let closed = path_set_id(&set);
+            closure.insert(closed.clone());
+            let IndexEntry::Vacant(state) = states_by_path.entry(closed) else {
+                continue;
+            };
+
+            let delta = Self::path_set_delta(set, table_root_id, table_root);
+
+            q.extend(
+                delta
+                    .by_token
+                    .values()
+                    .map(LeafOrBranch::inner)
+                    .chain([&delta.default_delta])
+                    .map(|d| d.next.clone()),
+            );
+
+            state.insert(delta);
+        }
+
+        let state_ids: HashMap<_, _> = path_closures
+            .into_iter()
+            .map(|(p, c)| {
+                (
+                    p,
+                    state_id(
+                        states_by_path
+                            .get_index_of(&c)
+                            .unwrap_or_else(|| unreachable!()),
+                    ),
+                )
+            })
+            .collect();
+
+        Some(self.resolve_state_paths(states_by_path, &state_ids, extra))
+    }
+
+    fn resolve_state_paths<'tree, StateExtra>(
+        &'tree self,
+        states_by_path: StatesByPath<
             'tree,
             Output,
             ExtendConversion,
@@ -174,84 +235,29 @@ impl<
             LeafExtra,
             TreeExtra,
         >,
-    ) -> (
-        RootId,
-        SparseTable<TokenId, TreeOutput<'tree, Output, ExtendConversion>, StateExtra>,
-    ) {
-        let mut q: VecDeque<_> = [(
-            self.path_closure(
-                Path {
-                    root: id,
-                    toks: SmallVec::new_const(),
-                },
-                closures,
-            ),
-            SmallVec::new_const(),
-        )]
-        .into_iter()
-        .collect();
-
-        let mut resolved = IndexMap::new();
-
-        while let Some((map, conversion)) = q.pop_front() {
-            let Entry::Vacant(entry) =
-                resolved.entry(map.keys().cloned().collect::<SmallVec<[_; 1]>>())
-            else {
-                continue;
-            };
-
-            let (deltas, default_delta) = self.resolve_deltas(&map, id, &conversion, closures);
-
-            q.extend(
-                deltas
-                    .values()
-                    .map(LeafOrBranch::inner)
-                    .chain([&default_delta])
-                    .map(|d| (Rc::clone(&d.next), d.conversion.clone())),
-            );
-
-            entry.insert((deltas, default_delta));
-        }
-
-        let state_ids: HashMap<_, _> = resolved
-            .keys()
-            .enumerate()
-            .map(|(i, k)| (k.clone(), state_id(i)))
-            .collect();
-
-        (
-            id,
-            SparseTable(
-                resolved
-                    .into_iter()
-                    .map(|(p, (d, e))| {
-                        let path = p.first().unwrap_or_else(|| unreachable!());
+        state_ids: &HashMap<SmallVec<[Path; 1]>, StateId>,
+        mut extra: impl FnMut(&TreeStatePath<'tree, TokenDef, RootExtra, TreeExtra>) -> StateExtra,
+    ) -> SparseTable<TokenId, TreeOutput<'tree, Output, ExtendConversion>, StateExtra> {
+        SparseTable(
+            states_by_path
+                .into_iter()
+                .map(
+                    |(
+                        path,
+                        PathSetDelta {
+                            by_token,
+                            default_delta,
+                        },
+                    )| {
+                        let path = path.first().unwrap_or_else(|| unreachable!());
                         let root = self.root_always(path.root);
 
                         SparseState {
-                            delta: d
+                            delta: by_token
                                 .into_iter()
-                                .map(|(t, d)| {
-                                    let d = d.into_inner();
-                                    (t, Delta {
-                                        next: *state_ids
-                                            .get(
-                                                &d.next
-                                                    .keys()
-                                                    .cloned()
-                                                    .collect::<SmallVec<[_; 1]>>(),
-                                            )
-                                            .unwrap_or_else(|| unreachable!()),
-                                        kind: d.into_kind(),
-                                    })
-                                })
+                                .map(|(t, d)| (t, d.into_inner().build(state_ids)))
                                 .collect(),
-                            default_delta: Delta {
-                                next: *state_ids
-                                    .get(&e.next.keys().cloned().collect::<SmallVec<[_; 1]>>())
-                                    .unwrap_or_else(|| unreachable!()),
-                                kind: e.into_kind(),
-                            },
+                            default_delta: default_delta.build(state_ids),
                             extra: extra(&TreeStatePath {
                                 root: root.extra(),
                                 root_tree: root.as_tree().extra(),
@@ -259,256 +265,207 @@ impl<
                                     .toks
                                     .iter()
                                     .scan(root.as_tree(), |t, &k| {
-                                        *t = match t
-                                            .deltas()
-                                            .get(&k)
-                                            .unwrap_or_else(|| unreachable!())
-                                        {
-                                            TreeDelta::Leaf(..) => unreachable!(),
-                                            TreeDelta::Branch(b) => b.as_tree(),
+                                        let Some(TreeDelta::Branch(branch)) = t.deltas().get(&k)
+                                        else {
+                                            unreachable!()
                                         };
+                                        *t = branch;
 
                                         Some((k, self.token_always(k), t.extra()))
                                     })
                                     .collect(),
                             }),
                         }
-                    })
-                    .collect(),
-            ),
+                    },
+                )
+                .collect(),
         )
     }
 
-    #[allow(
-        clippy::type_complexity,
-        reason = "It's a 2-tuple, not much to be done"
-    )]
-    fn resolve_deltas<'tree>(
+    fn close_path_set<'tree>(
         &'tree self,
-        map: &ExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
-        table_root: RootId,
-        conversion_prefix: &ConversionPath<'tree, ExtendConversion>,
-        closures: &mut PathClosures<
-            'tree,
-            Output,
-            ExtendConversion,
-            RootExtra,
-            LeafExtra,
-            TreeExtra,
-        >,
-    ) -> (
-        IndexMap<
-            TokenId,
-            LeafOrBranch<
-                ResolvedDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
-            >,
-        >,
-        ResolvedDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+        set: &mut PathSet<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
     ) {
-        let mut deltas = IndexMap::new();
+        let mut i = 0;
+        while let Some((_, data)) = set.get_index(i) {
+            let mut to_insert = vec![];
+
+            for &(root_id, label, ref ext_conversion) in data.tree.extends() {
+                let root = self.root_always(root_id);
+                let (tree, toks) = root.resolve_label_path_always(label);
+
+                let ext_path = Path {
+                    root: root_id,
+                    toks,
+                };
+
+                let mut conversion = data.conversion.clone();
+                conversion.push(ext_conversion);
+                if !set.contains_key(&ext_path) {
+                    to_insert.push((ext_path, PathData {
+                        root,
+                        tree,
+                        conversion,
+                    }));
+                }
+            }
+
+            set.extend(to_insert);
+
+            i += 1;
+        }
+    }
+
+    fn path_set_delta<'tree>(
+        set: PathSet<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+        table_root_id: RootId,
+        table_root: &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    ) -> PathSetDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        let mut by_token = IndexMap::new();
         let mut default_delta = None;
 
-        for (
-            path,
-            &ResolvedExtend {
-                root,
-                tree,
-                ref conversion,
-            },
-        ) in map
-        {
-            let conversion = || {
-                if conversion_prefix.is_empty() {
-                    conversion.clone()
-                } else {
-                    conversion_prefix
-                        .iter()
-                        .chain(conversion)
-                        .copied()
-                        .collect()
-                }
-            };
-
-            for (&tok, delta) in tree.deltas() {
-                match delta {
-                    TreeDelta::Leaf(leaf, _) => {
-                        deltas.insert(
-                            tok,
-                            LeafOrBranch::Leaf(self.resolve_leaf(
+        for (path, data) in set {
+            for (&token, delta) in data.tree.deltas() {
+                match by_token.entry(token) {
+                    IndexEntry::Occupied(o) => match (delta, o.into_mut()) {
+                        (TreeDelta::Leaf(leaf, _), entry @ LeafOrBranch::Branch(_)) => {
+                            *entry = LeafOrBranch::Leaf(Self::leaf_delta(
                                 leaf,
+                                data.conversion.clone(),
+                                table_root_id,
                                 table_root,
                                 path.root,
-                                root,
-                                conversion(),
-                                closures,
-                            )),
-                        );
+                                data.root,
+                            ));
+                        },
+                        (TreeDelta::Branch(branch), LeafOrBranch::Branch(entry)) => {
+                            let mut next = path.clone();
+                            next.toks.push(token);
+
+                            entry.next.entry(next).or_insert_with(|| PathData {
+                                tree: branch,
+                                conversion: data.conversion.clone(),
+                                ..data
+                            });
+                        },
+                        _ => (),
                     },
-                    TreeDelta::Branch(b) => {
-                        let next = Path {
-                            toks: path.toks.iter().copied().chain([tok]).collect(),
-                            ..*path
-                        };
-                        match deltas.entry(tok) {
-                            Entry::Occupied(o) => {
-                                let LeafOrBranch::Branch(branch) = o.into_mut() else {
-                                    continue;
-                                };
+                    IndexEntry::Vacant(v) => {
+                        v.insert(match delta {
+                            TreeDelta::Leaf(leaf, _) => LeafOrBranch::Leaf(Self::leaf_delta(
+                                leaf,
+                                data.conversion.clone(),
+                                table_root_id,
+                                table_root,
+                                path.root,
+                                data.root,
+                            )),
+                            TreeDelta::Branch(branch) => {
+                                let mut next = path.clone();
+                                next.toks.push(token);
 
-                                let map = Rc::make_mut(&mut branch.next);
-
-                                for (path, ext) in &*self.path_closure(next, closures) {
-                                    map.raw_entry_mut_v1()
-                                        .from_key(path)
-                                        .or_insert_with(|| (path.clone(), ext.clone()));
-                                }
+                                LeafOrBranch::Branch(PathDelta {
+                                    next: [(next, PathData {
+                                        tree: branch,
+                                        conversion: data.conversion.clone(),
+                                        ..data
+                                    })]
+                                    .into_iter()
+                                    .collect(),
+                                    output: Some(TreeOutput {
+                                        output: branch.out(),
+                                        conversion: data.conversion.clone(),
+                                    }),
+                                })
                             },
-                            Entry::Vacant(v) => {
-                                v.insert(LeafOrBranch::Branch(ResolvedDelta {
-                                    next: self.path_closure(next, closures),
-                                    output: Some(b.out()),
-                                    conversion: conversion(),
-                                }));
-                            },
-                        }
+                        });
                     },
                 }
             }
 
             if default_delta.is_none() {
-                default_delta = Some(self.resolve_leaf(
-                    tree.default(),
+                default_delta = Some(Self::leaf_delta(
+                    data.tree.default(),
+                    data.conversion,
+                    table_root_id,
                     table_root,
                     path.root,
-                    root,
-                    conversion(),
-                    closures,
+                    data.root,
                 ));
             }
         }
 
-        (deltas, default_delta.unwrap_or_else(|| unreachable!()))
+        PathSetDelta {
+            by_token,
+            default_delta: default_delta.unwrap_or_else(|| unreachable!()),
+        }
     }
 
-    fn resolve_leaf<'tree>(
-        &'tree self,
+    fn leaf_delta<'tree>(
         leaf: &'tree Leaf<Output>,
-        table_root: RootId,
-        root: RootId,
-        root_ref: &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
         conversion: ConversionPath<'tree, ExtendConversion>,
-        closures: &mut PathClosures<
-            'tree,
-            Output,
-            ExtendConversion,
-            RootExtra,
-            LeafExtra,
-            TreeExtra,
-        >,
-    ) -> ResolvedDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
-        let (path, output) = match leaf {
+        table_root_id: RootId,
+        table_root: &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+        ext_root_id: RootId,
+        ext_root: &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
+    ) -> PathDelta<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
+        let (path, root, tree, output) = match leaf {
             Leaf::Output(o) => (
                 Path {
-                    root: table_root,
+                    root: table_root_id,
                     toks: SmallVec::new_const(),
                 },
+                table_root,
+                table_root.as_tree(),
                 Some(o),
             ),
             &Leaf::Goto(l, ref o) => {
-                let (_, toks) = root_ref.resolve_label_path_always(Some(l));
-                (Path { root, toks }, Some(o))
+                let (tree, toks) = ext_root.resolve_label_path_always(Some(l));
+                (
+                    Path {
+                        root: ext_root_id,
+                        toks,
+                    },
+                    ext_root,
+                    tree,
+                    Some(o),
+                )
             },
             &Leaf::Retry(None) => (
                 Path {
-                    root: table_root,
+                    root: table_root_id,
                     toks: SmallVec::new_const(),
                 },
+                table_root,
+                table_root.as_tree(),
                 None,
             ),
             &Leaf::Retry(Some(l)) => {
-                let (_, toks) = root_ref.resolve_label_path_always(Some(l));
-                (Path { root, toks }, None)
+                let (table, toks) = ext_root.resolve_label_path_always(Some(l));
+                (
+                    Path {
+                        root: ext_root_id,
+                        toks,
+                    },
+                    ext_root,
+                    table,
+                    None,
+                )
             },
         };
 
-        ResolvedDelta {
-            next: self.path_closure(path, closures),
-            output,
-            conversion,
-        }
-    }
-
-    #[allow(
-        clippy::type_complexity,
-        reason = "It's a 2-tuple, not much to be done"
-    )]
-    fn resolve_path<'tree>(
-        &'tree self,
-        path: &Path,
-    ) -> (
-        &'tree Root<Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra>,
-        &'tree Tree<Output, ExtendConversion, LeafExtra, TreeExtra>,
-    ) {
-        let &Path { root, ref toks } = path;
-        let root = self.root_always(root);
-        (
-            root,
-            toks.iter().fold(root.as_tree(), |t, k| {
-                match t.deltas().get(k).unwrap_or_else(|| unreachable!()) {
-                    TreeDelta::Leaf(..) => unreachable!(),
-                    TreeDelta::Branch(b) => b.as_tree(),
-                }
+        PathDelta {
+            output: output.map(|output| TreeOutput {
+                output,
+                conversion: conversion.clone(),
             }),
-        )
-    }
-
-    fn path_closure<'tree>(
-        &'tree self,
-        path: Path,
-        closures: &mut PathClosures<
-            'tree,
-            Output,
-            ExtendConversion,
-            RootExtra,
-            LeafExtra,
-            TreeExtra,
-        >,
-    ) -> RcExtendMap<'tree, Output, ExtendConversion, RootExtra, LeafExtra, TreeExtra> {
-        let entry = match closures.closed.entry(path) {
-            Entry::Occupied(o) => return Rc::clone(o.into_mut()),
-            Entry::Vacant(v) => v,
-        };
-
-        let (root, tree) = self.resolve_path(entry.key());
-
-        debug_assert!(closures.scratch.is_empty());
-        let mut q: VecDeque<_> = [(entry.key().clone(), root, tree, SmallVec::new_const())]
-            .into_iter()
-            .collect();
-
-        while let Some((path, root, tree, conversion)) = q.pop_front() {
-            let Entry::Vacant(v) = closures.scratch.entry(path) else {
-                continue;
-            };
-            v.insert(ResolvedExtend {
+            next: [(path, PathData {
                 root,
                 tree,
-                conversion: conversion.clone(),
-            });
-
-            for &(root, label, ref extend_conv) in tree.extends() {
-                let root_ref = self.root_always(root);
-                let (tree, toks) = root_ref.resolve_label_path_always(label);
-
-                q.push_back((
-                    Path { root, toks },
-                    root_ref,
-                    tree,
-                    conversion.iter().copied().chain([extend_conv]).collect(),
-                ));
-            }
+                conversion,
+            })]
+            .into_iter()
+            .collect(),
         }
-
-        Rc::clone(entry.insert(Rc::new(closures.scratch.drain(..).collect())))
     }
 }

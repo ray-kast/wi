@@ -1,18 +1,18 @@
-use std::num::NonZeroU32;
+use std::{borrow::Cow, num::NonZeroU32};
 
-use crate::{
-    actions::LastAction,
-    mode::Mode,
-    operators::{CurrentOperator, Operator},
-    traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes, UiOps},
-};
 pub use crate::{
-    actions::{ActionKind, MotionKind},
+    actions::ActionKind,
     continuation::{ContinueCx, ContinueOnce, Yielded},
     cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
     mode::ModeKind,
     operators::OperatorKind,
-    status::{LastOp, Status},
+    status::{CurrentOperatorStatus, LastChord, Status},
+};
+use crate::{
+    actions::LastAction,
+    mode::Mode,
+    operators::{CurrentOperator, Started},
+    traits::{CursorOps, GraphWidgetCell, GraphWidgetTypes, UiOps},
 };
 
 pub mod prelude {
@@ -25,6 +25,7 @@ mod actions;
 mod bindings;
 mod continuation;
 mod cursor;
+mod jump;
 mod keyboard;
 mod mode;
 pub mod modifiers;
@@ -84,7 +85,7 @@ pub enum CursorUpdate {
 #[derive_where::derive_where(Debug; W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind)]
 #[must_use]
 pub struct GraphWidgetDriver<W: GraphWidgetTypes + ?Sized> {
-    current_operator: CurrentOperator,
+    current_operator: CurrentOperator<W>,
     inner: DriverInner<W>,
 }
 
@@ -95,10 +96,10 @@ struct DriverInner<W: GraphWidgetTypes + ?Sized> {
     debug: bool,
 
     count: Option<NonZeroU32>,
-    stashed_operators: Vec<Operator>,
+    stashed_operators: Vec<(Cow<'static, str>, Started<W>)>,
     mode: Mode,
     last_action: LastAction<W>,
-    last_op: LastOp,
+    last_op: LastChord,
 }
 
 impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
@@ -114,7 +115,7 @@ impl<W: CursorOps + ?Sized> GraphWidgetDriver<W> {
                 stashed_operators: vec![],
                 mode: Mode::default(),
                 last_action: LastAction::default(),
-                last_op: LastOp::default(),
+                last_op: LastChord::default(),
             },
         };
 
@@ -130,7 +131,7 @@ impl<W: UiOps + ?Sized> GraphWidgetDriver<W> {
         &mut self,
         widget: &mut W,
         cx: W::Context<'_, 'w>,
-        f: impl FnOnce(&mut DriverInner<W>, &mut CurrentOperator, &mut W, W::Context<'_, 'w>) -> T,
+        f: impl FnOnce(&mut DriverInner<W>, &mut CurrentOperator<W>, &mut W, W::Context<'_, 'w>) -> T,
     ) -> T {
         self.inner
             .mutate_check(&mut self.current_operator, widget, cx, f)
@@ -154,12 +155,12 @@ impl<W: UiOps + ?Sized> DriverInner<W> {
     #[inline]
     fn mutate_check<'w, T>(
         &mut self,
-        current_operator: &mut CurrentOperator,
+        current_operator: &mut CurrentOperator<W>,
         widget: &mut W,
         mut cx: W::Context<'_, 'w>,
         f: impl for<'a> FnOnce(
             &'a mut Self,
-            &'a mut CurrentOperator,
+            &'a mut CurrentOperator<W>,
             &'a mut W,
             W::Context<'a, 'w>,
         ) -> T,

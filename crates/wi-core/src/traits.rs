@@ -94,6 +94,8 @@ pub trait CursorOps: GraphWidgetTypes {
 }
 
 pub trait EdgeOps: GraphWidgetTypes {
+    fn create_edge(&mut self, from: WPort<Self>, to: WPort<Self>, cx: Self::Context<'_, '_>);
+
     fn delete_edge(
         &mut self,
         from: &WPort<Self>,

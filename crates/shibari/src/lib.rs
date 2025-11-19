@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 pub use shibari_grammar::*;
 #[cfg(feature = "proc-macros")]
 pub use shibari_macros::*;
@@ -5,9 +7,9 @@ pub use shibari_macros::*;
 pub trait Acceptor<T> {
     type Output;
 
-    fn pending_op(&self) -> &'static str;
+    fn pending_op(&self) -> Cow<'static, str>;
 
-    fn accept(&mut self, input: T) -> (&'static str, Self::Output);
+    fn accept(&mut self, input: T) -> (Cow<'static, str>, Self::Output);
 }
 
 pub trait AcceptorOutput {

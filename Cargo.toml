@@ -19,7 +19,7 @@ proc-macro2 = "1.0.103"
 quote = "1.0.42"
 smallvec = { version = "1.15.1", features = ["const_new"] }
 spin = { version = "0.10.0", default-features = false, features = ["once", "spin_mutex"] }
-syn = { version = "2.0.109", features = ["extra-traits", "fold", "full"] }
+syn = { version = "2.0.109", features = ["extra-traits", "fold", "visit", "full"] }
 tracing = "0.1.41"
 xilem = "0.4.0"
 

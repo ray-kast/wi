@@ -127,7 +127,7 @@ fn emit_acceptor(
         states.extend(quote_spanned! { span => #id, });
 
         op_arms.extend(quote_spanned! { span =>
-            #state_ty::#id => #op,
+            #state_ty::#id => ::std::borrow::Cow::Borrowed(#op),
         });
 
         for (&input, output) in state.delta() {
@@ -178,11 +178,14 @@ fn emit_acceptor(
         impl #acceptor_path<#input_ty> for #accept_ty {
             type Output = #output;
 
-            fn pending_op(&self) -> &'static str {
+            fn pending_op(&self) -> ::std::borrow::Cow<'static, str> {
                 match self.0 { #op_arms }
             }
 
-            fn accept(&mut self, __input: #input_ty) -> (&'static str, Self::Output) {
+            fn accept(
+                &mut self,
+                __input: #input_ty,
+            ) -> (::std::borrow::Cow<'static, str>, Self::Output) {
                 #![allow(
                     clippy::never_loop,
                     clippy::useless_conversion,
@@ -244,7 +247,9 @@ fn emit_delta(
                 op = Cow::Owned(LitStr::new(&s, state.op.span()));
             }
 
-            quote_spanned! { span => (#state_ty::#next, (#op, #out)), }
+            quote_spanned! { span =>
+                (#state_ty::#next, (::std::borrow::Cow::Borrowed(#op), #out)),
+            }
         },
         DeltaKind::Continue => quote_spanned! { span =>
             { *__state = #state_ty::#next; continue; },

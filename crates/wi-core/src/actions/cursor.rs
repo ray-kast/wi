@@ -4,18 +4,15 @@ use crate::{
 };
 
 pub(super) mod actions {
-    use crate::{
-        actions::{ActionKind, MotionKind},
-        Step,
-    };
+    use crate::{actions::ActionKind, Step};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
     pub struct StepCursor(
         #[kind(
-            Step::Left => MotionKind::StepLeft,
-            Step::Down => MotionKind::StepDown,
-            Step::Up => MotionKind::StepUp,
-            Step::Right => MotionKind::StepRight,
+            Step::Left => ActionKind::StepLeft,
+            Step::Down => ActionKind::StepDown,
+            Step::Up => ActionKind::StepUp,
+            Step::Right => ActionKind::StepRight,
         )]
         pub Step,
     );
@@ -25,7 +22,7 @@ pub(super) mod actions {
     pub struct ViewCursor;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(MotionKind)]
+    #[kind(ActionKind)]
     pub struct GoToOpposite;
 }
 
@@ -112,8 +109,8 @@ fn move_cursor<W: CursorOps + ?Sized>(
     any
 }
 
-impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::StepCursor {
-    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
+impl<W: CursorOps + ?Sized> EditorAction<W> for actions::StepCursor {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         let Self(step) = *self;
 
         move_cursor(count, &mut cx, |steps, cursor, widget, cell| {
@@ -206,8 +203,8 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
     }
 }
 
-impl<W: CursorOps + ?Sized, S: Selection> EditorMotion<W, S> for actions::GoToOpposite {
-    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>, selection: S) -> bool {
+impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;
             let next = match (count.get(), cursor) {

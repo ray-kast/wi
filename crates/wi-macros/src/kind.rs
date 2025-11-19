@@ -1,6 +1,6 @@
 use syn::{
     Arm, Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Fields, Generics,
-    Ident, Member, Token, Type, TypePath, Variant,
+    Ident, Member, Meta, Token, Type, TypePath, Variant,
 };
 
 use crate::prelude::*;
@@ -58,17 +58,23 @@ impl Parse for OuterAttr {
 }
 
 struct FieldAttr {
-    arms: Vec<Arm>,
+    arms: Option<Vec<Arm>>,
 }
 
-impl Parse for FieldAttr {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut arms = vec![];
-        while !input.is_empty() {
-            arms.push(input.parse()?);
-        }
+impl FieldAttr {
+    fn parse_attribute(attr: &Attribute) -> syn::Result<Self> {
+        if matches!(attr.meta, Meta::Path(_)) {
+            Ok(Self { arms: None })
+        } else {
+            attr.parse_args_with(|i: ParseStream| {
+                let mut arms = vec![];
+                while !i.is_empty() {
+                    arms.push(i.parse()?);
+                }
 
-        Ok(Self { arms })
+                Ok(Self { arms: Some(arms) })
+            })
+        }
     }
 }
 
@@ -182,10 +188,26 @@ fn run_struct(
 
         let memb = field.ident.map_or(Member::Unnamed(i.into()), Member::Named);
 
-        let FieldAttr { arms } = match get_attr(field.attrs, diag).map(|a| a.parse_args()) {
+        let FieldAttr { arms } = match get_attr(field.attrs, diag)
+            .as_ref()
+            .map(FieldAttr::parse_attribute)
+        {
             Some(Ok(a)) => a,
             Some(Err(e)) => return e.into_compile_error(),
             None => unreachable!(),
+        };
+
+        let Some(arms) = arms else {
+            let Some(kind_ty) = kind_ty else {
+                return span
+                    .error("Missing #[kind(...)] attribute for struct")
+                    .into_compile_error();
+            };
+
+            break 'found (
+                kind_ty,
+                Some(quote_spanned! { span => crate::actions::Kind::kind(&self.#memb) }),
+            );
         };
 
         let Some(kind_ty) = kind_ty.or_else(|| arms.iter().find_map(|a| guess_type(&a.body)))
@@ -361,9 +383,9 @@ fn run_variant(var: Variant, kind_ty: Option<&Type>, diag: &mut TokenStream) -> 
 
             let span = field.span();
 
-            let FieldAttr { arms } = get_attr(field.attrs, diag)
-                .unwrap_or_else(|| unreachable!())
-                .parse_args()?;
+            let FieldAttr { arms } = FieldAttr::parse_attribute(
+                &get_attr(field.attrs, diag).unwrap_or_else(|| unreachable!()),
+            )?;
 
             (
                 Some(if let Some(ident) = field.ident {
@@ -372,7 +394,11 @@ fn run_variant(var: Variant, kind_ty: Option<&Type>, diag: &mut TokenStream) -> 
                     let blanks = std::iter::repeat_n(quote_spanned! { span => _ }, i);
                     quote_spanned! { span => (#(#blanks,)* __kind_arg, ..) }
                 }),
-                quote_spanned! { span => match __kind_arg { #(#arms)* } },
+                if let Some(arms) = arms {
+                    quote_spanned! { span => match __kind_arg { #(#arms)* } }
+                } else {
+                    quote_spanned! { span => crate::actions::Kind::kind(__kind_arg) }
+                },
             )
         }
     };

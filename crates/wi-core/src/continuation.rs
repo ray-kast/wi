@@ -10,14 +10,14 @@ pub enum Dispatch<I, D> {
     Deferred(D),
 }
 
-type ContinueDispatch<'c, Y> = Dispatch<Y, &'c mut CurrentOperator>;
+type ContinueDispatch<'c, W, Y> = Dispatch<Y, &'c mut CurrentOperator<W>>;
 
 #[derive_where::derive_where(Debug;
     W, W::Context<'a, 'w>, W::NodeId, W::PortId, W::Cell, W::Point, W::NodeKind, Y)]
 pub struct ContinueCx<'a, 'c, 'w: 'a, W: GraphWidgetTypes + ?Sized, Y> {
     widget: &'a mut W,
     driver: &'a mut DriverInner<W>,
-    dispatch: ContinueDispatch<'c, Y>,
+    dispatch: ContinueDispatch<'c, W, Y>,
     inner: W::Context<'a, 'w>,
 }
 
@@ -36,7 +36,7 @@ impl<'a: 'c, 'c, 'w, W: GraphWidgetTypes + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, 
     }
 }
 
-impl<'a, 'c, 'w, W: UiOps + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, OpYielded<'a, 'c, Y>> {
+impl<'a, 'c, 'w, W: UiOps + ?Sized, Y> ContinueCx<'a, 'c, 'w, W, OpYielded<'a, 'c, W, Y>> {
     pub(crate) fn run_op<
         F: FnOnce(Option<Y>, crate::operators::OperatorCx<'_, '_, 'w, W>) -> T,
         T,
