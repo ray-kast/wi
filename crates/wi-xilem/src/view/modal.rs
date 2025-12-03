@@ -1,6 +1,6 @@
 use std::{fmt, marker::PhantomData};
 
-use wi_masonry::graph::Node;
+use wi_masonry::graph::WidgetNode;
 use xilem::{
     core::{MessageResult, View, ViewMarker},
     ViewCtx,
@@ -9,12 +9,12 @@ use xilem::{
 use super::{ActionKind, GraphEditorAction, Params};
 use crate::view::Update;
 
-pub struct ModalState<'a, N: Node> {
+pub struct ModalState<'a, N: WidgetNode> {
     state: &'a ViewState<N>,
     took_node_proto: bool,
 }
 
-impl<'a, N: Node> ModalState<'a, N> {
+impl<'a, N: WidgetNode> ModalState<'a, N> {
     fn new(state: &'a ViewState<N>) -> Self {
         Self {
             state,
@@ -28,7 +28,7 @@ impl<'a, N: Node> ModalState<'a, N> {
     }
 }
 
-impl<N: Node> Drop for ModalState<'_, N> {
+impl<N: WidgetNode> Drop for ModalState<'_, N> {
     fn drop(&mut self) {
         const REASON: &str = "(All modals must be handled or else the editor may lock up)";
 
@@ -44,7 +44,7 @@ impl<N: Node> Drop for ModalState<'_, N> {
     }
 }
 
-impl<N: Node> fmt::Debug for ModalState<'_, N> {
+impl<N: WidgetNode> fmt::Debug for ModalState<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             state: _,
@@ -62,7 +62,7 @@ impl<N: Node> fmt::Debug for ModalState<'_, N> {
 pub struct WantNodePrototype(());
 
 impl WantNodePrototype {
-    pub fn respond<N: Node, Action>(
+    pub fn respond<N: WidgetNode, Action>(
         self,
         proto: Option<N::Prototype>,
     ) -> GraphEditorAction<N, Action> {
@@ -71,7 +71,7 @@ impl WantNodePrototype {
 }
 
 pub fn graph_editor_modals<
-    N: Node,
+    N: WidgetNode,
     V,
     State,
     F: Fn(&mut State, Params<N>, ModalState<N>) -> V + Send + Sync + 'static,
@@ -93,7 +93,7 @@ pub struct GraphEditorModals<N, F> {
 
 #[doc(hidden)]
 #[expect(missing_debug_implementations)]
-pub struct ViewState<N: Node> {
+pub struct ViewState<N: WidgetNode> {
     modal: Option<Modal>,
     update: Option<Update<N>>,
 }
@@ -105,7 +105,7 @@ enum Modal {
 impl<N, F> ViewMarker for GraphEditorModals<N, F> {}
 
 impl<
-        N: Node,
+        N: WidgetNode,
         V: View<State, GraphEditorAction<N, Action>, ViewCtx>,
         State,
         Action,

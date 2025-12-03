@@ -3,7 +3,7 @@ use std::{borrow::Cow, num::NonZeroU32};
 pub use crate::{
     actions::ActionKind,
     continuation::{ContinueCx, ContinueOnce, Yielded},
-    cursor::{euclidean_cell, Cursor, EdgeCursor, WCursor, WEdgeCursor},
+    cursor::{Cursor, EdgeCursor, WCursor, WEdgeCursor},
     mode::ModeKind,
     operators::OperatorKind,
     status::{CurrentOperatorStatus, LastChord, Status},
@@ -30,6 +30,8 @@ mod keyboard;
 mod mode;
 pub mod modifiers;
 mod operators;
+#[cfg(feature = "opinions")]
+pub mod opinions;
 mod status;
 pub mod traits;
 

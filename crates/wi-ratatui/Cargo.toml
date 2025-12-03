@@ -1,6 +1,6 @@
 [package]
-name = "wi-masonry"
-description = "A vi-style node editor — Masonry widgets"
+name = "wi-ratatui"
+description = "A vi-style node editor — Ratatui widgets"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -8,9 +8,9 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-accesskit.workspace = true
-masonry.workspace = true
+derive-where.workspace = true
 petgraph.workspace = true
+ratatui.workspace = true
 smallvec.workspace = true
 tracing.workspace = true
 wi-core = { workspace = true, features = ["opinions"] }

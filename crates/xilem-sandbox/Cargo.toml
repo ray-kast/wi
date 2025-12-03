@@ -1,0 +1,16 @@
+[package]
+name = "xilem-sandbox"
+version = "0.0.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+masonry.workspace = true
+wi-xilem.workspace = true
+xilem.workspace = true
+
+[lints]
+workspace = true

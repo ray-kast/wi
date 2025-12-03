@@ -1,6 +1,6 @@
 use syn::{
-    Arm, Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Fields, Generics,
-    Ident, Member, Meta, Token, Type, TypePath, Variant,
+    Arm, Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Field, Fields,
+    Generics, Ident, Member, Meta, Token, Type, TypePath, Variant,
 };
 
 use crate::prelude::*;
@@ -163,19 +163,9 @@ fn run_struct(
             None => None,
         };
 
-        let Some((i, field)) = get_one(
-            fields
-                .into_iter()
-                .enumerate()
-                .filter(|(_, f)| f.attrs.iter().any(attr_matches)),
-            |(_, f)| {
-                diag.extend(
-                    f.span()
-                        .error("Only one field may have a #[kind] attribute")
-                        .into_compile_error(),
-                );
-            },
-        ) else {
+        let Some((i, field)) =
+            get_one_field(fields, "Only one field may have a #[kind] attribute", diag)
+        else {
             let Some(kind_ty) = kind_ty else {
                 return span
                     .error("Missing #[kind(...)] attribute for struct")
@@ -238,6 +228,22 @@ fn run_struct(
             fn kind(&self) -> #kind_ty { #expr }
         }
     }
+}
+
+fn get_one_field(
+    fields: impl IntoIterator<Item = Field>,
+    err: &str,
+    diag: &mut TokenStream,
+) -> Option<(usize, Field)> {
+    get_one(
+        fields
+            .into_iter()
+            .enumerate()
+            .filter(|(_, f)| f.attrs.iter().any(attr_matches)),
+        |(_, f)| {
+            diag.extend(f.span().error(err).into_compile_error());
+        },
+    )
 }
 
 fn run_unit(attr: Option<OuterAttr>, span: Span) -> syn::Result<(Type, Option<TokenStream>)> {
@@ -361,18 +367,10 @@ fn run_variant(var: Variant, kind_ty: Option<&Type>, diag: &mut TokenStream) -> 
 
             (None, expr.into_token_stream())
         } else {
-            let Some((i, field)) = get_one(
-                var.fields
-                    .into_iter()
-                    .enumerate()
-                    .filter(|(_, f)| f.attrs.iter().any(attr_matches)),
-                |(_, f)| {
-                    diag.extend(
-                        f.span()
-                            .error("Only one field per variant may have a #[kind] attribute")
-                            .into_compile_error(),
-                    );
-                },
+            let Some((i, field)) = get_one_field(
+                var.fields,
+                "Only one field per variant may have a #[kind] attribute",
+                diag,
             ) else {
                 let Some(kind_ty) = kind_ty else {
                     return Err(span.error("Missing #[kind(...)] attribute for variant"));

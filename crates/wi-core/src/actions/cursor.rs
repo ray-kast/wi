@@ -4,7 +4,18 @@ use crate::{
 };
 
 pub(super) mod actions {
-    use crate::{actions::ActionKind, Step};
+    use wi_macros::Kind;
+
+    use crate::{actions::ActionKind, traits::GraphWidgetTypes, Step, WSidedPort};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Kind)]
+    #[kind(ActionKind)]
+    pub struct GoToOpposite;
+
+    #[derive_where::derive_where(Debug, Clone, Copy, PartialEq, Eq, Hash; W::NodeId, W::PortId)]
+    #[derive(Kind)]
+    #[kind(ActionKind)]
+    pub struct GoToPort<W: GraphWidgetTypes + ?Sized>(pub WSidedPort<W>);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
     pub struct StepCursor(
@@ -20,10 +31,6 @@ pub(super) mod actions {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
     #[kind(ActionKind)]
     pub struct ViewCursor;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, wi_macros::Kind)]
-    #[kind(ActionKind)]
-    pub struct GoToOpposite;
 }
 
 #[inline]
@@ -107,6 +114,75 @@ fn move_cursor<W: CursorOps + ?Sized>(
     }
 
     any
+}
+
+impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
+        move_cursor(count, &mut cx, |count, cursor, widget, _| {
+            let dec;
+            let next = match (count.get(), cursor) {
+                (_, Cursor::Node(n)) => {
+                    // HACK: pattern types wen eta ;;
+                    let c = Cursor::Node(n);
+                    let cell = W::Cell::of_cursor(widget, &c);
+                    let Cursor::Node(n) = c else { unreachable!() };
+                    if let Some(p) = widget.nearest_port(&n, Side::In, &cell) {
+                        dec = 1;
+                        Cursor::Port(SidedPort(Side::In, Port(n, p)))
+                    } else {
+                        dec = 0;
+                        Cursor::Node(n)
+                    }
+                },
+                (k, c @ (Cursor::Port(..) | Cursor::Edge(..))) if k % 2 == 0 => {
+                    dec = k;
+                    c
+                },
+                (k, Cursor::Port(p)) => {
+                    let c = Cursor::Port(p);
+                    let cell = W::Cell::of_cursor(widget, &c);
+                    let Cursor::Port(mut p) = c else {
+                        unreachable!();
+                    };
+                    if let Some(p2) = widget.nearest_port(&p.1 .0, p.0.flip(), &cell) {
+                        p.0 = p.0.flip();
+                        p.1 .1 = p2;
+                        dec = k;
+                        Cursor::Port(p)
+                    } else {
+                        dec = 0;
+                        Cursor::Port(p)
+                    }
+                },
+                (k, Cursor::Edge(mut e)) => {
+                    e.anchor = e.anchor.flip();
+                    dec = k;
+                    Cursor::Edge(e)
+                },
+                (_, c @ Cursor::FixedPoint(..)) => {
+                    dec = 0;
+                    c
+                },
+            };
+
+            (NonZero::new(dec), next, AlignCell::Overwrite)
+        });
+
+        true
+    }
+}
+
+impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToPort<W> {
+    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
+        let None = count else { return false };
+        let Self(port) = *self;
+
+        move_cursor(None, &mut cx, |_, _, _, _| {
+            (NonZero::new(1), Cursor::Port(port), AlignCell::Overwrite)
+        });
+
+        true
+    }
 }
 
 impl<W: CursorOps + ?Sized> EditorAction<W> for actions::StepCursor {
@@ -199,62 +275,6 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::ViewCursor {
                 c,
             );
         });
-        true
-    }
-}
-
-impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
-    fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
-        move_cursor(count, &mut cx, |count, cursor, widget, _| {
-            let dec;
-            let next = match (count.get(), cursor) {
-                (_, Cursor::Node(n)) => {
-                    // HACK: pattern types wen eta ;;
-                    let c = Cursor::Node(n);
-                    let cell = W::Cell::of_cursor(widget, &c);
-                    let Cursor::Node(n) = c else { unreachable!() };
-                    if let Some(p) = widget.nearest_port(&n, Side::In, &cell) {
-                        dec = 1;
-                        Cursor::Port(SidedPort(Side::In, Port(n, p)))
-                    } else {
-                        dec = 0;
-                        Cursor::Node(n)
-                    }
-                },
-                (k, c @ (Cursor::Port(..) | Cursor::Edge(..))) if k % 2 == 0 => {
-                    dec = k;
-                    c
-                },
-                (k, Cursor::Port(p)) => {
-                    let c = Cursor::Port(p);
-                    let cell = W::Cell::of_cursor(widget, &c);
-                    let Cursor::Port(mut p) = c else {
-                        unreachable!();
-                    };
-                    if let Some(p2) = widget.nearest_port(&p.1 .0, p.0.flip(), &cell) {
-                        p.0 = p.0.flip();
-                        p.1 .1 = p2;
-                        dec = k;
-                        Cursor::Port(p)
-                    } else {
-                        dec = 0;
-                        Cursor::Port(p)
-                    }
-                },
-                (k, Cursor::Edge(mut e)) => {
-                    e.anchor = e.anchor.flip();
-                    dec = k;
-                    Cursor::Edge(e)
-                },
-                (_, c @ Cursor::FixedPoint(..)) => {
-                    dec = 0;
-                    c
-                },
-            };
-
-            (NonZero::new(dec), next, AlignCell::Overwrite)
-        });
-
         true
     }
 }

@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
     drag::DragHandler,
-    graph::{Checked, Edge, Graph, Node},
+    graph::{Checked, Edge, Graph, WidgetNode},
     widget::node::NodeExt,
 };
 
@@ -42,7 +42,7 @@ macro_rules! make_mut {
     };
 }
 
-impl<N: Node> EditorCore<N> {
+impl<N: WidgetNode> EditorCore<N> {
     pub fn new(graph: Arc<Graph<N>>) -> Self {
         let pan = graph
             .node_weights()
@@ -102,7 +102,7 @@ impl<N: Node> EditorCore<N> {
 }
 
 // Node drag behavior
-impl<N: Node> EditorCore<N> {
+impl<N: WidgetNode> EditorCore<N> {
     #[inline]
     pub fn in_node_drag(&self) -> bool { self.node_drag.in_drag() }
 
@@ -190,7 +190,7 @@ impl<N: Node> EditorCore<N> {
     }
 }
 
-impl<N: Node> GraphWidgetTypes for EditorCore<N> {
+impl<N: WidgetNode> GraphWidgetTypes for EditorCore<N> {
     type Cell = Cell<N>;
     type Context<'cx, 'widget: 'cx> = AnyContext<'cx, 'widget>;
     type NodeId = NodeIndex;
@@ -205,7 +205,7 @@ impl<N: Node> GraphWidgetTypes for EditorCore<N> {
     }
 }
 
-impl<N: Node> CursorOps for EditorCore<N> {
+impl<N: WidgetNode> CursorOps for EditorCore<N> {
     fn default_cursor(&self) -> WCursor<Self> {
         self.graph
             .node_references()
@@ -239,10 +239,7 @@ impl<N: Node> CursorOps for EditorCore<N> {
         cell: &Self::Cell,
     ) -> Option<Self::PortId> {
         let node = &self.graph[n];
-        let len = match side {
-            Side::In => node.in_arity(),
-            Side::Out => node.out_arity(),
-        };
+        let len = node.arity(side);
         let pos = cell.port_target(self, side);
 
         let (port, _) = (0..len)
@@ -262,14 +259,7 @@ impl<N: Node> CursorOps for EditorCore<N> {
 
         let res: u16 = usize::from(port)
             .saturating_add_signed(count)
-            .min(
-                match side {
-                    Side::In => node.in_arity(),
-                    Side::Out => node.out_arity(),
-                }
-                .saturating_sub(1)
-                .into(),
-            )
+            .min(node.arity(side).saturating_sub(1).into())
             .try_into()
             .unwrap_or_else(|_| unreachable!());
 
@@ -416,7 +406,7 @@ impl<N: Node> CursorOps for EditorCore<N> {
     }
 }
 
-impl<N: Node> EdgeOps for EditorCore<N> {
+impl<N: WidgetNode> EdgeOps for EditorCore<N> {
     fn create_edge(&mut self, from: WPort<Self>, to: WPort<Self>, mut cx: Self::Context<'_, '_>) {
         make_mut!(self.graph).add_edge(from.0, to.0, Edge {
             from_port: from.1,
@@ -451,7 +441,7 @@ impl<N: Node> EdgeOps for EditorCore<N> {
     }
 }
 
-impl<N: Node> NodeOps for EditorCore<N> {
+impl<N: WidgetNode> NodeOps for EditorCore<N> {
     fn prompt_node_kind<'a, Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
         &'a mut self,
         then: Yielded<'a, '_, Self, Y, C>,
@@ -499,7 +489,7 @@ impl<N: Node> NodeOps for EditorCore<N> {
     }
 }
 
-impl<N: Node> UiOps for EditorCore<N> {
+impl<N: WidgetNode> UiOps for EditorCore<N> {
     fn update_status(&mut self, status: Status, mut cx: Self::Context<'_, '_>) {
         let rendered = RenderedStatus::new(status);
         cx.mutate_later(&mut self.statusbar, move |b| rendered.update(b));

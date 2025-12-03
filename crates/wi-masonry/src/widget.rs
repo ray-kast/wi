@@ -18,12 +18,13 @@ use petgraph::{
 use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
+    opinions::graph::{Label, NodeStyleArity, StyleKind},
     Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
 };
 
 use self::{core::EditorCore, edge::Edge};
 use crate::{
-    graph::{self, Graph, InputLabel, Node, NodeLabel, NodeStyle, OutputLabel},
+    graph::{self, Graph, NodeStyle, WidgetLabel, WidgetNode},
     widget::node::NodeExt,
 };
 
@@ -39,13 +40,13 @@ mod view;
 pub use action::*;
 
 #[expect(missing_debug_implementations, reason = "WidgetPod doesn't impl Debug")]
-pub struct GraphEditor<N: Node> {
+pub struct GraphEditor<N: WidgetNode> {
     core: EditorCore<N>,
     driver: GraphWidgetDriver<EditorCore<N>>,
     viewport: Rect,
 }
 
-impl<N: Node> GraphEditor<N> {
+impl<N: WidgetNode> GraphEditor<N> {
     #[inline]
     #[must_use]
     pub fn new(graph: Arc<Graph<N>>) -> Self {
@@ -123,11 +124,14 @@ impl<N: Node> GraphEditor<N> {
 
         let (id, node) = node;
         let rect = node.rect();
+        let style = node.style();
 
         let rounding_weight = weight.clamp(0.5, 2.0);
-        let clip = match node.style() {
-            NodeStyle::Small => rect.to_rounded_rect(rect.height()),
-            NodeStyle::Medium | NodeStyle::Large => rect.to_rounded_rect(6.0 * rounding_weight),
+        let clip = match style {
+            StyleKind::Widget(_) => rect.to_rounded_rect(rect.height()),
+            StyleKind::Small(_) | StyleKind::Large(_) => {
+                rect.to_rounded_rect(6.0 * rounding_weight)
+            },
         };
 
         scene.push_layer(BlendMode::default(), 1.0, tf, &clip);
@@ -140,9 +144,11 @@ impl<N: Node> GraphEditor<N> {
             &rect,
         );
 
-        match node.style() {
-            NodeStyle::Small => (),
-            NodeStyle::Medium => {
+        let label;
+        match &style {
+            StyleKind::Widget(w) => label = w.label.as_ref(),
+            StyleKind::Small(s) => {
+                label = WidgetLabel::Label(s.label.as_ref());
                 let offs = node.name_rect().origin().x;
                 scene.fill(
                     Fill::NonZero,
@@ -155,7 +161,8 @@ impl<N: Node> GraphEditor<N> {
                     ),
                 );
             },
-            NodeStyle::Large => {
+            StyleKind::Large(l) => {
+                label = WidgetLabel::Label(l.label.as_ref());
                 // HACK: Using the bottom padding as a shorthand for "inner padding" is bad
                 scene.fill(
                     Fill::NonZero,
@@ -173,17 +180,18 @@ impl<N: Node> GraphEditor<N> {
         let name_rect = node.name_rect();
         let (fcx, lcx) = cx.text_contexts();
 
-        match (node.name(), node.label()) {
-            (s, NodeLabel::Name) | (_, NodeLabel::Text(s)) => {
+        match (node.name(), label) {
+            (s, WidgetLabel::Label(Label { content, icon })) => {
+                let s = content.unwrap_or(s);
                 #[expect(clippy::cast_possible_truncation)]
                 let layout = hack_layout_text(
                     &s,
                     lcx.ranged_builder(fcx, &s, 1.0, true),
                     name_rect.width() as f32,
-                    match (node.style(), node.in_arity(), node.out_arity()) {
-                        (NodeStyle::Small, 0, 0) => Alignment::Center,
-                        (NodeStyle::Small, _, 0) => Alignment::Left,
-                        (NodeStyle::Small, 0, _) => Alignment::Right,
+                    match (&style, style.in_arity(), style.out_arity()) {
+                        (StyleKind::Small(_), 0, 0) => Alignment::Center,
+                        (StyleKind::Small(_), _, 0) => Alignment::Left,
+                        (StyleKind::Small(_), 0, _) => Alignment::Right,
                         _ => Alignment::Center,
                     },
                 );
@@ -198,13 +206,12 @@ impl<N: Node> GraphEditor<N> {
                     true,
                 );
             },
-            (_, NodeLabel::Icon(i)) => todo!(),
-            (_, NodeLabel::Widget(w)) => todo!(),
+            (_, WidgetLabel::Widget(w)) => todo!(),
         }
 
         scene.pop_layer();
 
-        if node.style() == NodeStyle::Large {
+        if let StyleKind::Large(_) = style {
             let padding = node.padding();
 
             let tf = tf
@@ -212,12 +219,19 @@ impl<N: Node> GraphEditor<N> {
             #[expect(clippy::cast_possible_truncation)]
             let width = node.inner_size().width as f32;
 
-            for i in 0..node.in_arity() {
-                let graph::Port { name, shape, label } = node.in_port(i);
-                let label = match label {
-                    InputLabel::Name => name,
-                    InputLabel::Text(s) => s,
-                    InputLabel::Widget(w) => todo!(),
+            for (i, port) in style.in_ports() {
+                let graph::Port {
+                    name,
+                    description,
+                    shape,
+                    label: Some(label),
+                } = port
+                else {
+                    continue;
+                };
+                let label = match label.as_ref() {
+                    WidgetLabel::Label(Label { content, icon }) => content.unwrap_or(name),
+                    WidgetLabel::Widget(w) => todo!(),
                 };
 
                 let layout = hack_layout_text(
@@ -236,12 +250,18 @@ impl<N: Node> GraphEditor<N> {
                 );
             }
 
-            for i in 0..node.out_arity() {
-                let graph::Port { name, shape, label } = node.out_port(i);
-                let label = match label {
-                    OutputLabel::Name => name,
-                    OutputLabel::Text(s) => s,
+            for (i, port) in style.out_ports() {
+                let graph::Port {
+                    name,
+                    description,
+                    shape,
+                    label: Some(label),
+                } = port
+                else {
+                    continue;
                 };
+                let Label { content, icon } = label.as_ref();
+                let label = content.unwrap_or(name);
 
                 let layout = hack_layout_text(
                     &label,
@@ -270,7 +290,7 @@ impl<N: Node> GraphEditor<N> {
             );
         }
 
-        for port in 0..node.in_arity() {
+        for port in 0..style.in_arity() {
             Self::paint_port(
                 cx,
                 scene,
@@ -281,7 +301,7 @@ impl<N: Node> GraphEditor<N> {
             );
         }
 
-        for port in 0..node.out_arity() {
+        for port in 0..style.out_arity() {
             Self::paint_port(
                 cx,
                 scene,
@@ -315,13 +335,13 @@ impl<N: Node> GraphEditor<N> {
                 from.0.port_pos(from.1, Side::Out),
                 to.0.port_pos(to.1, Side::In),
                 24.0,
-                from.1 < from.0.out_arity() / 2,
+                from.1 < from.0.style().out_arity() / 2,
             ),
         );
     }
 }
 
-impl<N: Node + 'static> Widget for GraphEditor<N> {
+impl<N: WidgetNode + 'static> Widget for GraphEditor<N> {
     type Action = GraphAction<N>;
 
     fn accepts_focus(&self) -> bool { true }

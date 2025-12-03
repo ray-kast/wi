@@ -122,6 +122,9 @@ mod imp {
         // From create
         CreateEdge(CreateEdge<W>),
         CreateNode(CreateNode<W>),
+
+        // From cursor
+        GoToPort(GoToPort<W>),
     }
 
     #[impl_enum]
@@ -181,6 +184,7 @@ mod imp {
         CreateNode,
         DeleteAtCursor,
         GoToOpposite,
+        GoToPort,
         ModeNormal,
         PushCount,
         Quit,
@@ -202,6 +206,7 @@ mod imp {
                 Self::CreateNode => "create node",
                 Self::DeleteAtCursor => "delete at cursor",
                 Self::GoToOpposite => "go to opposite",
+                Self::GoToPort => "go to port",
                 Self::ModeNormal => "normal mode",
                 Self::PushCount => "push count",
                 Self::Quit => "quit",

@@ -4,14 +4,14 @@ use masonry::{
     vello::Scene,
 };
 use wi_core::{
-    euclidean_cell::{Anchor, GraphEuclidean, State, WAnchor},
+    opinions::cell::{Anchor, GraphEuclidean, State, WAnchor},
     Port, SidedPort,
 };
 
 use super::core::EditorCore;
-use crate::{graph::Node, widget::node::NodeExt};
+use crate::{graph::WidgetNode, widget::node::NodeExt};
 
-impl<N: Node> GraphEuclidean for EditorCore<N> {
+impl<N: WidgetNode> GraphEuclidean for EditorCore<N> {
     type Scalar = f64;
     type Vector = Vec2;
 
@@ -52,9 +52,9 @@ impl<N: Node> GraphEuclidean for EditorCore<N> {
     }
 }
 
-pub type Cell<N> = wi_core::euclidean_cell::WCell<EditorCore<N>>;
+pub type Cell<N> = wi_core::opinions::cell::WCell<EditorCore<N>>;
 
-pub fn debug<N: Node>(
+pub fn debug<N: WidgetNode>(
     cell: &Cell<N>,
     graph: &EditorCore<N>,
     scene: &mut Scene,

@@ -1,7 +1,5 @@
 use crate::{traits::GraphWidgetTypes, Port, Side, SidedPort};
 
-pub mod euclidean_cell;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EdgeCursor<N, P> {
     pub from: Port<N, P>,

@@ -8,12 +8,17 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-derive-where = "1.6.0"
+derive-where.workspace = true
 keyboard-types.workspace = true
 num-traits = "0.2.19"
+petgraph = { workspace = true, optional = true }
 shibari.workspace = true
+smallvec.workspace = true
 tracing.workspace = true
 wi-macros.workspace = true
+
+[features]
+opinions = ["dep:petgraph"]
 
 [lints]
 workspace = true

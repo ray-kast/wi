@@ -7,7 +7,7 @@ use crate::{
     AlignCell, Cursor, Port, Side, SidedPort, WCursor,
 };
 
-/// Implements several functions that enable the use of a euclidean [Cell]
+/// Implements several functions that enable the use of a Euclidean [Cell]
 pub trait GraphEuclidean:
     GraphWidgetTypes<
     NodeId: PartialEq,

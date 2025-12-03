@@ -11,7 +11,7 @@ use xilem::{
 };
 
 use crate::{
-    graph::{Graph, Node},
+    graph::{Graph, WidgetNode},
     widget,
 };
 
@@ -20,11 +20,11 @@ mod modal;
 pub use modal::*;
 
 #[expect(missing_debug_implementations)]
-pub struct Params<N: Node> {
+pub struct Params<N: WidgetNode> {
     update: SpinMutex<Option<Update<N>>>,
 }
 
-impl<N: Node> Default for Params<N> {
+impl<N: WidgetNode> Default for Params<N> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -33,7 +33,7 @@ impl<N: Node> Default for Params<N> {
     }
 }
 
-enum Update<N: Node> {
+enum Update<N: WidgetNode> {
     FoundNodePrototype(Option<N::Prototype>),
 }
 
@@ -41,7 +41,7 @@ type OnChange<N, State, Action> =
     Box<dyn Fn(&mut State, Checked<Graph<N>>, Change<N>) -> Action + Send + Sync>;
 
 pub fn graph_editor<
-    N: Node,
+    N: WidgetNode,
     State,
     Action,
     C: Fn(&mut State, Checked<Graph<N>>, Change<N>) -> Action + Send + Sync + 'static,
@@ -59,7 +59,7 @@ pub fn graph_editor<
 
 #[must_use]
 #[expect(missing_debug_implementations)]
-pub struct GraphEditor<N: Node, State, Action> {
+pub struct GraphEditor<N: WidgetNode, State, Action> {
     graph: Arc<Graph<N>>,
     params: Params<N>,
     on_change: OnChange<N, State, Action>,
@@ -67,30 +67,30 @@ pub struct GraphEditor<N: Node, State, Action> {
 
 #[doc(hidden)]
 #[expect(missing_debug_implementations)]
-pub struct ViewState<N: Node> {
+pub struct ViewState<N: WidgetNode> {
     want_node_prototype: Option<PrototypeCallback<N>>,
 }
 
 #[expect(missing_debug_implementations)]
-pub struct GraphEditorAction<N: Node, Action>(ActionKind<N, Action>);
+pub struct GraphEditorAction<N: WidgetNode, Action>(ActionKind<N, Action>);
 
-enum ActionKind<N: Node, Action> {
+enum ActionKind<N: WidgetNode, Action> {
     WantNodePrototype,
     FoundNodePrototype(Option<N::Prototype>),
     Inner(Action),
 }
 
-impl<N: Node, Action> From<ActionKind<N, Action>> for GraphEditorAction<N, Action> {
+impl<N: WidgetNode, Action> From<ActionKind<N, Action>> for GraphEditorAction<N, Action> {
     #[inline]
     fn from(value: ActionKind<N, Action>) -> Self { Self(value) }
 }
 
-impl<N: Node + 'static, State: 'static, Action: 'static> ViewMarker
+impl<N: WidgetNode + 'static, State: 'static, Action: 'static> ViewMarker
     for GraphEditor<N, State, Action>
 {
 }
 
-impl<N: Node + 'static, State: 'static, Action: 'static>
+impl<N: WidgetNode + 'static, State: 'static, Action: 'static>
     View<State, GraphEditorAction<N, Action>, ViewCtx> for GraphEditor<N, State, Action>
 {
     type Element = Pod<widget::GraphEditor<N>>;

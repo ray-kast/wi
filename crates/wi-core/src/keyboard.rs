@@ -9,8 +9,7 @@ use crate::{
     bindings::{ActionOut, Key},
     continuation::Dispatch,
     operators::{
-        CurrentOperator, EditorOperator, Operator, OperatorCx, OperatorResult, StartCx,
-        StartOperator,
+        CurrentOperator, EditorOperator, Operator, OperatorCx, OperatorFlow, StartCx, StartOperator,
     },
     traits::GraphWidget,
     DriverInner, GraphWidgetDriver, LastChord,
@@ -80,7 +79,7 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
         mut cx: W::Context<'_, '_>,
     ) -> bool {
         if let Some(operator) = current_operator.as_mut() {
-            let mut res = OperatorResult::Continue;
+            let mut res = OperatorFlow::Continue;
             operator.step(
                 key,
                 OperatorCx::new(
@@ -92,14 +91,14 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
             );
 
             return match res {
-                OperatorResult::Continue => true,
-                OperatorResult::Finish => {
+                OperatorFlow::Continue => true,
+                OperatorFlow::Finish => {
                     current_operator
                         .pop(&mut self.stashed_operators)
                         .unwrap_or_else(|| unreachable!());
                     true
                 },
-                OperatorResult::Abort => {
+                OperatorFlow::Abort => {
                     current_operator
                         .pop(&mut self.stashed_operators)
                         .unwrap_or_else(|| unreachable!());
@@ -179,7 +178,7 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
         operator: Operator,
         mut cx: W::Context<'_, '_>,
     ) -> bool {
-        let mut res = OperatorResult::Continue;
+        let mut res = OperatorFlow::Continue;
         let started = operator.start_op(
             self.count.take(),
             StartCx::new(
@@ -195,18 +194,18 @@ impl<W: GraphWidget + ?Sized> DriverInner<W> {
                 false
             },
             Ok(s) => match res {
-                OperatorResult::Continue => {
+                OperatorFlow::Continue => {
                     debug!(operator = s.kind().name(), "Pushing operator");
                     current_operator.push(s, chord, &mut self.stashed_operators);
 
                     true
                 },
-                OperatorResult::Finish => {
+                OperatorFlow::Finish => {
                     debug!(operator = s.kind().name(), "Operator finished on init");
 
                     true
                 },
-                OperatorResult::Abort => {
+                OperatorFlow::Abort => {
                     debug!(operator = s.kind().name(), "Operator aborted on init");
 
                     false

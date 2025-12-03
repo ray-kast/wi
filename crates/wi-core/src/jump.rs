@@ -1,24 +1,48 @@
-use std::{borrow::Cow, marker::PhantomData};
+use std::borrow::Cow;
 
+use derive_where::derive_where;
 use shibari::Acceptor;
+use smallvec::SmallVec;
 
 use crate::{bindings::Key, traits::GraphWidgetTypes, WPort};
 
+#[derive_where(Debug, PartialEq, Eq, Hash; W::NodeId, W::PortId)]
+#[derive_where(Clone, Copy; )]
 pub struct JumpAdorner<W: GraphWidgetTypes + ?Sized> {
     target: JumpAdornerTarget<W>,
 }
 
+#[derive_where(Debug, PartialEq, Eq, Hash; W::NodeId, W::PortId)]
+#[derive_where(Clone, Copy; )]
 pub enum JumpAdornerTarget<W: GraphWidgetTypes + ?Sized> {
     Node(W::NodeId),
     Port(W::PortId),
     Edge(WPort<W>, WPort<W>),
 }
 
-#[derive_where::derive_where(Debug, PartialEq; )]
-pub struct JumpState<T>(Cow<'static, str>, PhantomData<T>);
+pub enum JumpResult<T> {
+    Abort,
+    Accept(T),
+    Jump(JumpState<T>),
+}
+
+pub trait JumpTarget {}
+
+#[derive(Debug, PartialEq)]
+pub struct JumpState<T>(Cow<'static, str>, Vec<T>);
 
 impl<T> JumpState<T> {
-    pub fn new(pending: Cow<'static, str>) -> Self { Self(pending, todo!()) }
+    pub fn start(pending: Cow<'static, str>, targets: SmallVec<[T; 1]>) -> JumpResult<T> {
+        if targets.len() < 2 {
+            let Ok([target]) = targets.into_inner() else {
+                return JumpResult::Abort;
+            };
+
+            JumpResult::Accept(target)
+        } else {
+            JumpResult::Jump(Self(pending, targets.into_vec()))
+        }
+    }
 }
 
 pub enum JumpOut<T> {

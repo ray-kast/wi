@@ -85,7 +85,7 @@ mod imp {
         }
     }
 
-    pub type OpDispatch<'a, 'c, W> = Dispatch<&'c mut OperatorResult, &'c mut CurrentOperator<W>>;
+    pub type OpDispatch<'a, 'c, W> = Dispatch<&'c mut OperatorFlow, &'c mut CurrentOperator<W>>;
     pub type OpYielded<'a, 'c, W, Y> = (OpDispatch<'a, 'c, W>, Y);
 
     pub struct OperatorCx<'a, 'c, 'w: 'a, W: GraphWidgetTypes + ?Sized> {
@@ -153,7 +153,7 @@ mod imp {
         pub fn abort(mut self, pending: Cow<'static, str>) {
             self.driver.last_op.chord = pending;
             match self.dispatch {
-                Dispatch::Immediate(ref mut r) => **r = OperatorResult::Abort,
+                Dispatch::Immediate(ref mut r) => **r = OperatorFlow::Abort,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
                 },
@@ -164,7 +164,7 @@ mod imp {
         pub fn finish(mut self, pending: Cow<'static, str>) {
             self.driver.last_op.chord = pending;
             match self.dispatch {
-                Dispatch::Immediate(ref mut r) => **r = OperatorResult::Finish,
+                Dispatch::Immediate(ref mut r) => **r = OperatorFlow::Finish,
                 Dispatch::Deferred(ref mut c) => {
                     c.pop(&mut self.driver.stashed_operators);
                 },
@@ -207,7 +207,7 @@ mod imp {
     impl std::error::Error for StartError {}
 
     #[derive(Debug, Clone, Copy)]
-    pub enum OperatorResult {
+    pub enum OperatorFlow {
         Continue,
         Finish,
         Abort,
@@ -245,7 +245,7 @@ mod imp {
     #[derive_where(Debug; W::NodeId, W::PortId)]
     pub(crate) enum Started<W: GraphWidgetTypes + ?Sized> {
         Create(super::create::CreateStarted<W>),
-        Jump(super::jump::JumpStarted<W>),
+        Jump(super::jump::JumpToPortStarted<W>),
     }
 
     #[impl_enum]
@@ -300,4 +300,4 @@ mod imp {
 }
 
 pub(crate) use imp::{CurrentOperator, EditorOperator, OperatorState, StartOperator, Started};
-pub use imp::{OpYielded, Operator, OperatorCx, OperatorKind, OperatorResult, StartCx, StartError};
+pub use imp::{OpYielded, Operator, OperatorCx, OperatorFlow, OperatorKind, StartCx, StartError};

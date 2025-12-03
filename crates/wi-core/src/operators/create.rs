@@ -2,7 +2,7 @@ use wi_macros::Kind;
 
 pub use super::prelude::*;
 use crate::{
-    jump::{JumpOut, JumpState},
+    jump::{JumpOut, JumpResult, JumpState},
     Cursor, GraphWidgetCell, Side, WSidedPort,
 };
 
@@ -90,14 +90,22 @@ impl<W: EdgeOps + NodeOps + UiOps + ?Sized> EditorOperator<W> for CreateStarted<
                             .as_ref()
                             .unwrap_or_else(|| unreachable!())
                         {
-                            Cursor::Node(_) => self.0 = State::EdgeStart(JumpState::new(pending)),
+                            Cursor::Node(_) => match JumpState::start(pending, todo!()) {
+                                JumpResult::Abort => cx.abort(pending),
+                                JumpResult::Accept(t) => todo!(),
+                                JumpResult::Jump(s) => self.0 = State::EdgeStart(s),
+                            },
                             Cursor::Port(p) => {
                                 if p.0 != s {
                                     cx.abort(pending);
                                     return;
                                 }
 
-                                self.0 = State::EdgeConnect(JumpState::new(pending), *p);
+                                match JumpState::start(pending, todo!()) {
+                                    JumpResult::Abort => cx.abort(pending),
+                                    JumpResult::Accept(t) => todo!(),
+                                    JumpResult::Jump(s) => self.0 = State::EdgeConnect(s, *p),
+                                }
                             },
                             Cursor::Edge(_) | Cursor::FixedPoint(_) => cx.abort(pending),
                         }
@@ -109,7 +117,11 @@ impl<W: EdgeOps + NodeOps + UiOps + ?Sized> EditorOperator<W> for CreateStarted<
                 match out {
                     JumpOut::Trap => cx.abort(pending),
                     JumpOut::Advance => (),
-                    JumpOut::Accept(p) => self.0 = State::EdgeConnect(JumpState::new(pending), p),
+                    JumpOut::Accept(p) => match JumpState::start(pending, todo!()) {
+                        JumpResult::Abort => cx.abort(pending),
+                        JumpResult::Accept(t) => todo!(),
+                        JumpResult::Jump(s) => self.0 = State::EdgeConnect(s, p),
+                    },
                 }
             },
             &mut State::EdgeConnect(ref mut j, p) => {
