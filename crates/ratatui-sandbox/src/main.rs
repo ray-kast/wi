@@ -1,7 +1,7 @@
 use std::{io, mem};
 
 use ratatui::{
-    crossterm::event::{self, Event, KeyEvent, KeyEventKind},
+    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     prelude::*,
 };
 use wi_ratatui::{
@@ -177,19 +177,35 @@ fn event_loop<W: io::Write>(
 
     match event::read()? {
         Event::Key(KeyEvent {
+            code: KeyCode::Char('\\' | '@' | '2' | '4' | 'c'),
+            modifiers,
+            ..
+        }) if modifiers.contains(KeyModifiers::CONTROL) => Ok(false),
+        Event::Key(KeyEvent {
             code,
             modifiers,
             kind: KeyEventKind::Press,
             state: key_state,
         }) => {
             let mut cx = Cx::new();
-
-            state
+            let handled = state
                 .graph
                 .handle_crossterm_key(code, modifiers, key_state, &mut cx);
+
+            if !handled
+                && matches!(code, KeyCode::Char('@' | '\\' | '2' | '4' | 'c'))
+                && modifiers.contains(KeyModifiers::CONTROL)
+            {
+                cx.quit_requested = true;
+            }
+
             state.render_requested = cx.render_requested;
 
             Ok(!cx.quit_requested)
+        },
+        Event::Resize(..) => {
+            state.render_requested = true;
+            Ok(true)
         },
         _ => Ok(true),
     }

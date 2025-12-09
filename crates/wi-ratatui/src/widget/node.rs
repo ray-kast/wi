@@ -1,4 +1,3 @@
-use ratatui::layout::{Margin, Position, Rect};
 use wi_core::{
     opinions::graph::{NodeStyleArity, StyleKind},
     Side,
@@ -6,13 +5,10 @@ use wi_core::{
 
 use crate::{
     graph::TuiNode,
-    vector::{Point, Vector},
+    vector::{Insets, Point, SignedRect, Vector},
 };
 
-const LABEL_MARGIN: Margin = Margin {
-    horizontal: 1,
-    vertical: 0,
-};
+const LABEL_INSETS: Insets = Insets::symmetric(1, 0);
 
 pub trait NodeExt: TuiNode {
     fn body_size(&self) -> Vector {
@@ -59,8 +55,8 @@ pub trait NodeExt: TuiNode {
     }
 
     #[inline]
-    fn head_rect_offset(&self) -> Option<(Rect, Position)> {
-        self.position().to_rect_offset(Vector {
+    fn head_rect(&self) -> Option<SignedRect> {
+        self.position().to_rect(Vector {
             x: self.width(),
             y: self.head_height(),
         })
@@ -76,31 +72,19 @@ pub trait NodeExt: TuiNode {
     }
 
     #[inline]
-    fn body_rect_offset(&self) -> Option<(Rect, Position)> {
-        self.body_position().to_rect_offset(self.body_size())
-    }
+    fn body_rect(&self) -> Option<SignedRect> { self.body_position().to_rect(self.body_size()) }
 
     #[inline]
-    fn label_rect(&self) -> Option<(Rect, Position)> {
+    fn label_rect(&self) -> Option<SignedRect> {
         match self.style() {
-            StyleKind::Widget(_) | StyleKind::Small(_) => self.body_rect_offset(),
-            StyleKind::Large(_) => self.head_rect_offset(),
+            StyleKind::Widget(_) | StyleKind::Small(_) => self.body_rect(),
+            StyleKind::Large(_) => self.head_rect(),
         }
     }
 
     #[inline]
-    fn port_label_rect_offset(&self) -> Option<(Rect, Position)> {
-        let (mut rect, mut offset) = self.body_rect_offset()?;
-        rect = rect.inner(LABEL_MARGIN);
-
-        let clip_x = rect.x.min(offset.x);
-        let clip_y = rect.y.min(offset.y);
-        rect.x -= clip_x;
-        offset.x -= clip_x;
-        rect.y -= clip_y;
-        offset.y -= clip_y;
-
-        Some((rect, offset))
+    fn port_label_rect(&self) -> Option<SignedRect> {
+        self.body_rect().map(|r| r.inset(LABEL_INSETS))
     }
 
     fn port_pos(&self, idx: u16, side: Side, bump_outside: bool) -> Point {

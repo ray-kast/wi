@@ -1,16 +1,18 @@
 use ratatui::{
     buffer::Buffer,
-    layout::{HorizontalAlignment, Position, Rect, Size},
+    layout::{HorizontalAlignment, Rect},
     style::Style,
     text::{Span, StyledGrapheme},
     widgets::Widget,
 };
 
+use crate::vector::SignedRect;
+
 pub struct Layout<'a> {
     span: &'a Span<'a>,
     style: Style,
-    neg_gap: bool,
-    gap: u16,
+    x: i32,
+    y: u16,
     width: u16,
 }
 
@@ -19,79 +21,74 @@ impl<'a> Layout<'a> {
         Self {
             span,
             style: Style::new(),
-            neg_gap: false,
-            gap: 0,
+            x: 0,
+            y: 0,
             width: 0,
         }
     }
 
     pub fn prepare(
-        size: Size,
-        inner_offs: Position,
+        area: SignedRect,
         align: HorizontalAlignment,
         span: &'a Span<'a>,
         style: Style,
     ) -> Self {
-        if inner_offs.y != 0 || size.width == 0 || size.height == 0 {
+        if area.is_empty() {
             return Self::empty(span);
         }
 
-        let total_width = size.width.saturating_add(inner_offs.x);
-
-        let width = span.width().try_into().unwrap_or(u16::MAX);
-        if width == 0 {
+        let Ok(y) = u16::try_from(area.y) else {
             return Self::empty(span);
-        }
-
-        let total_gap = match align {
-            HorizontalAlignment::Left => 0,
-            HorizontalAlignment::Center => total_width.saturating_sub(width) / 2,
-            HorizontalAlignment::Right => total_width.saturating_sub(width),
         };
+
+        let span_width = span.width().try_into().unwrap_or(u32::MAX);
+        if span_width == 0 {
+            return Self::empty(span);
+        }
+
+        let x = area.x.saturating_add_unsigned(match align {
+            HorizontalAlignment::Left => 0,
+            HorizontalAlignment::Center => area.width.saturating_sub(span_width) / 2,
+            HorizontalAlignment::Right => area.width.saturating_sub(span_width),
+        });
 
         Self {
             span,
             style,
-            neg_gap: inner_offs.x > total_gap,
-            gap: total_gap.abs_diff(inner_offs.x),
-            width,
+            x,
+            y,
+            width: span_width.max(area.width).try_into().unwrap_or(u16::MAX),
         }
-    }
-
-    #[inline]
-    pub fn width(&self) -> u16 {
-        self.width
-            .saturating_sub(u16::from(self.neg_gap) * self.gap)
     }
 }
 
 impl Widget for Layout<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.y < buf.area.y {
+        let area = area.intersection(buf.area);
+
+        if area.is_empty() {
             return;
         }
 
         let Self {
             span,
             style,
-            neg_gap,
-            gap,
+            x,
+            y,
             width,
         } = self;
 
-        let skip = u16::from(neg_gap) * gap;
-        let gap = u16::from(!neg_gap) * gap.min(area.width);
-        let area = Rect {
-            x: area.x.saturating_add(gap),
-            y: area.y,
-            width: (area.width - gap).min(width),
-            height: area.height.min(1),
+        let skip = u16::from(x < 0) * x.saturating_neg().try_into().unwrap_or(u16::MAX);
+        let rect = Rect {
+            x: u16::from(x >= 0) * x.try_into().unwrap_or(u16::MAX),
+            y,
+            width: width.saturating_sub(skip),
+            height: 1,
         };
+        let skip = skip.saturating_add(area.x.saturating_sub(rect.x));
+        let area = area.intersection(rect);
 
-        let skip = skip.saturating_add(buf.area.x.saturating_sub(area.x));
-        let area = area.intersection(buf.area);
-
-        if area.is_empty() || skip >= width {
+        if area.is_empty() {
             return;
         }
 
@@ -102,16 +99,4 @@ impl Widget for Layout<'_> {
             buf[pos].set_style(style).set_symbol(symbol);
         }
     }
-}
-
-#[inline]
-pub fn render_span(
-    area: Rect,
-    buf: &mut Buffer,
-    inner_offs: Position,
-    align: HorizontalAlignment,
-    span: &Span,
-    style: Style,
-) {
-    Layout::prepare(area.as_size(), inner_offs, align, span, style).render(area, buf);
 }

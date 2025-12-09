@@ -8,7 +8,6 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-derive-where.workspace = true
 glam = "0.30.9"
 keyboard-types.workspace = true
 petgraph.workspace = true

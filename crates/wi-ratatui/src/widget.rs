@@ -1,6 +1,5 @@
-use std::{borrow::Cow, fmt::Write, sync::Arc};
+use std::{fmt::Write, sync::Arc};
 
-use derive_where::derive_where;
 use keyboard_types::{Modifiers, NamedKey};
 use petgraph::{
     graph::NodeIndex,
@@ -8,7 +7,7 @@ use petgraph::{
 };
 use ratatui::{
     buffer::Buffer,
-    layout::{HorizontalAlignment, Position, Rect, Size},
+    layout::{HorizontalAlignment, Position, Rect},
     style::{Color, Style},
     text::Span,
     widgets::{StatefulWidget, Widget},
@@ -19,16 +18,13 @@ use wi_core::{
     Port, Side, SidedPort, Status, WPort,
 };
 
-pub use self::core::Cx;
 use self::core::EditorCore;
+pub use self::core::{Cx, PrototypeCallback};
 use super::vector::Point;
 use crate::{
     graph::{NodeStyle as _, StyleKind as NodeStyle, TuiNode},
-    widget::{
-        edge::Edge,
-        node::NodeExt,
-        text::{render_span, Layout},
-    },
+    vector::{Insets, SignedRect},
+    widget::{edge::Edge, node::NodeExt, text::Layout},
 };
 
 mod cell;
@@ -37,7 +33,7 @@ mod edge;
 mod node;
 mod text;
 
-#[derive_where(Debug; N, N::Prototype)]
+#[expect(missing_debug_implementations, reason = "Contains Box<dyn FnOnce>")]
 pub struct GraphEditor<N: TuiNode> {
     core: EditorCore<N>,
     driver: GraphWidgetDriver<EditorCore<N>>,
@@ -61,6 +57,11 @@ impl<N: TuiNode> GraphEditor<N> {
         // SAFETY: All operations on self.core.graph preserve the validity of
         //         the graph
         unsafe { Checked::new_unchecked(Arc::clone(&self.core.graph)) }
+    }
+
+    #[inline]
+    pub const fn wants_node_prototype(&mut self) -> &mut Option<PrototypeCallback<N>> {
+        &mut self.core.want_node_prototype
     }
 
     pub fn handle_char_input(&mut self, chars: &str, mods: Modifiers, cx: &mut Cx<'_>) -> bool {
@@ -257,14 +258,14 @@ impl<N: TuiNode> GraphEditor<N> {
         let focused = focus_node == Some(idx);
         let style = node.style();
 
-        let Some((head_rect, _)) = node.head_rect_offset() else {
+        let Some(head_rect) = node.head_rect() else {
             return;
         };
-        let Some((body_rect, _)) = node.body_rect_offset() else {
+        let Some(body_rect) = node.body_rect() else {
             return;
         };
 
-        for pos in area.intersection(head_rect).positions() {
+        for pos in area.intersection(head_rect.as_bounding_rect()).positions() {
             let cell = &mut buf[pos];
             let style = cell.style();
             cell.set_style(
@@ -275,10 +276,11 @@ impl<N: TuiNode> GraphEditor<N> {
                         Color::Green
                     })
                     .fg(Color::White),
-            );
+            )
+            .set_char(' ');
         }
 
-        for pos in area.intersection(body_rect).positions() {
+        for pos in area.intersection(body_rect.as_bounding_rect()).positions() {
             let cell = &mut buf[pos];
             let cell_style = cell.style();
             cell.set_style(
@@ -288,11 +290,8 @@ impl<N: TuiNode> GraphEditor<N> {
                         (true, _) => Color::LightBlue,
                     })
                     .fg(Color::Gray),
-            );
-
-            if focused {
-                cell.set_char(' ');
-            }
+            )
+            .set_char(' ');
         }
 
         let label = match &style {
@@ -307,20 +306,19 @@ impl<N: TuiNode> GraphEditor<N> {
             WidgetLabel::Widget(w) => todo!(),
         };
 
-        let Some((label_rect, label_offs)) = node.label_rect() else {
+        let Some(label_rect) = node.label_rect() else {
             unreachable!()
         };
 
-        render_span(
+        Layout::prepare(
             label_rect,
-            buf,
-            label_offs,
             HorizontalAlignment::Center,
             &label,
             Style::new().fg(Color::White).bold(),
-        );
+        )
+        .render(area, buf);
 
-        let Some((label_rect, label_offs)) = node.port_label_rect_offset() else {
+        let Some(label_rect) = node.port_label_rect() else {
             unreachable!()
         };
         for (i, port) in style.in_ports() {
@@ -332,18 +330,15 @@ impl<N: TuiNode> GraphEditor<N> {
             } = port;
 
             let y = node.port_inner_row(i, Side::In);
-            let pos = Position {
-                x: body_rect.x,
-                y: body_rect.y + y,
-            };
-
-            Self::paint_port(
-                area,
-                buf,
-                pos,
-                Side::In,
-                focus_port == Some((Side::In, &Port(idx, i))),
-            );
+            if let Some(pos) = body_rect.nudge_add(0, y.into()).as_top_left() {
+                Self::paint_port(
+                    area,
+                    buf,
+                    pos,
+                    Side::In,
+                    focus_port == Some((Side::In, &Port(idx, i))),
+                );
+            }
 
             if let Some(label) = label {
                 let label = match label.as_ref() {
@@ -352,26 +347,15 @@ impl<N: TuiNode> GraphEditor<N> {
                     },
                     WidgetLabel::Widget(w) => todo!(),
                 };
+                let label_rect = label_rect.nudge_add(0, y.into()).height(1);
 
-                let label_rect = Rect {
-                    x: label_rect.x,
-                    y: label_rect.y + y,
-                    width: label_rect.width,
-                    height: 1,
-                };
-                let label_offs = Position {
-                    x: label_offs.x,
-                    y: label_offs.y.saturating_sub(y),
-                };
-
-                render_span(
+                Layout::prepare(
                     label_rect,
-                    buf,
-                    label_offs,
                     HorizontalAlignment::Left,
                     &label,
                     Style::new().fg(Color::White).not_bold(),
-                );
+                )
+                .render(area, buf);
             }
         }
 
@@ -384,53 +368,36 @@ impl<N: TuiNode> GraphEditor<N> {
             } = port;
 
             let y = node.port_inner_row(i, Side::Out);
-            let pos = Position {
-                x: body_rect.x + body_rect.width - 1,
-                y: body_rect.y + y,
-            };
-
-            Self::paint_port(
-                area,
-                buf,
-                pos,
-                Side::Out,
-                focus_port == Some((Side::Out, &Port(idx, i))),
-            );
+            if let Some(pos) = body_rect.nudge_add(0, y.into()).as_top_right(true) {
+                Self::paint_port(
+                    area,
+                    buf,
+                    pos,
+                    Side::Out,
+                    focus_port == Some((Side::Out, &Port(idx, i))),
+                );
+            }
 
             if let Some(label) = label {
                 let Label { content, icon } = label.as_ref();
                 let label = Span::raw(content.unwrap_or(name));
+                let label_rect = label_rect.nudge_add(0, y.into()).height(1);
 
-                let label_rect = Rect {
-                    x: label_rect.x,
-                    y: label_rect.y + y,
-                    width: label_rect.width,
-                    height: 1,
-                };
-                let label_offs = Position {
-                    x: label_offs.x,
-                    y: label_offs.y.saturating_sub(y),
-                };
-
-                render_span(
+                Layout::prepare(
                     label_rect,
-                    buf,
-                    label_offs,
                     HorizontalAlignment::Right,
                     &label,
                     Style::new().fg(Color::White).not_bold(),
-                );
+                )
+                .render(area, buf);
             }
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "The logic here would be difficult to refactor"
-    )]
     fn paint_status(area: Rect, buf: &mut Buffer, status: Status) {
-        const MODE_WIDTH: u16 = 40;
-        const CHORD_WIDTH: u16 = 10;
+        const MODE_WIDTH: u32 = 40;
+        const CHORD_WIDTH: u32 = 10;
+        const GAP: u32 = 1;
 
         let Status {
             count,
@@ -443,7 +410,7 @@ impl<N: TuiNode> GraphEditor<N> {
         } = status;
 
         let mode_hl = mode != ModeKind::Normal || current_operator.is_some();
-        let mut mode = Cow::Borrowed(match mode {
+        let mut mode = format!("-- {} --", match mode {
             ModeKind::Normal => "NORMAL",
         });
 
@@ -461,9 +428,7 @@ impl<N: TuiNode> GraphEditor<N> {
             pending_op,
         }) = current_operator
         {
-            let mut mode_str = mode.into_owned();
-            write!(mode_str, " ({})", operator.name()).unwrap();
-            mode = mode_str.into();
+            write!(mode, " ({})", operator.name()).unwrap();
 
             chord.push_str(&operator_chord);
             chord.push_str(&pending_op);
@@ -490,13 +455,11 @@ impl<N: TuiNode> GraphEditor<N> {
 
         let last_action = last_action.map(ActionKind::name).unwrap_or_default();
 
+        let rect = SignedRect::from(area);
+
         let mode = Span::raw(mode);
         let mode = Layout::prepare(
-            Size {
-                width: MODE_WIDTH,
-                height: 1,
-            },
-            Position::ORIGIN,
+            rect.width(MODE_WIDTH),
             HorizontalAlignment::Left,
             &mode,
             if mode_hl {
@@ -511,11 +474,8 @@ impl<N: TuiNode> GraphEditor<N> {
         );
         let chord = Span::raw(chord);
         let chord = Layout::prepare(
-            Size {
-                width: CHORD_WIDTH,
-                height: 1,
-            },
-            Position::ORIGIN,
+            rect.inset(Insets::ZERO.left(MODE_WIDTH + GAP))
+                .width_aligned(CHORD_WIDTH, HorizontalAlignment::Right),
             HorizontalAlignment::Left,
             &chord,
             Style::new().fg(if chord_hl {
@@ -525,50 +485,17 @@ impl<N: TuiNode> GraphEditor<N> {
             }),
         );
 
-        let last_action_offs = mode.width().saturating_add(1);
-        let chord_offs = mode.width().max(area.width.saturating_sub(CHORD_WIDTH));
-
         let last_action = Span::raw(last_action);
         let last_action = Layout::prepare(
-            Size {
-                width: area
-                    .width
-                    .saturating_sub(
-                        CHORD_WIDTH
-                            .max(chord.width())
-                            .saturating_add(last_action_offs),
-                    )
-                    .saturating_sub(1),
-                height: 1,
-            },
-            Position::ORIGIN,
+            rect.inset(Insets::ZERO.left(MODE_WIDTH + GAP).right(CHORD_WIDTH + GAP)),
             HorizontalAlignment::Right,
             &last_action,
             Style::new().fg(Color::DarkGray),
         );
 
         mode.render(area, buf);
-
-        last_action.render(
-            Rect {
-                x: area.x.saturating_add(last_action_offs),
-                width: area
-                    .width
-                    .saturating_sub(last_action_offs)
-                    .saturating_sub(1),
-                ..area
-            },
-            buf,
-        );
-
-        chord.render(
-            Rect {
-                x: area.x.saturating_add(chord_offs),
-                width: area.width.saturating_sub(chord_offs),
-                ..area
-            },
-            buf,
-        );
+        last_action.render(area, buf);
+        chord.render(area, buf);
     }
 }
 

@@ -75,19 +75,47 @@ impl Edge {
 impl Widget for Edge {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let area = area.intersection(buf.area);
-        let Self { from, to, .. } = self;
+        let Self {
+            mut from, mut to, ..
+        } = self;
 
-        let y_diff = from.y.abs_diff(to.y);
         let (from, to) = if to.x <= from.x {
+            let y_diff = from.y.abs_diff(to.y);
             if y_diff < 2 {
-                todo!()
+                self.write(area, buf, from, LB);
+                self.write(area, buf, to, BR);
+
+                from.y = from.y.saturating_add(1);
+                to.y = to.y.saturating_add(1);
+
+                self.write(area, buf, from, LT);
+                self.write(area, buf, to, TR);
             } else {
-                todo!()
+                let to_lower = to.y > from.y;
+                let (from_chr, to_chr) = if to_lower { (LB, TR) } else { (LT, BR) };
+
+                self.write(area, buf, from, from_chr);
+                self.write(area, buf, to, to_chr);
+
+                let offs = 1 - 2 * i16::from(to_lower);
+                from.y = from.y.saturating_sub_signed(offs);
+                to.y = to.y.saturating_add_signed(offs);
+
+                let (from_chr, to_chr) = if to_lower { (LT, BR) } else { (LB, TR) };
+
+                self.write(area, buf, from, from_chr);
+                self.write(area, buf, to, to_chr);
             }
+
+            from.x = from.x.saturating_sub(1);
+            to.x = to.x.saturating_add(1);
+
+            (to, from)
         } else {
             (from, to)
         };
 
+        let y_diff = from.y.abs_diff(to.y);
         if y_diff == 0 {
             self.h_seg(area, buf, (from.x, to.x), from.y);
             return;

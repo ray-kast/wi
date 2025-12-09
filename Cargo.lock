@@ -4345,7 +4345,6 @@ dependencies = [
 name = "wi-ratatui"
 version = "0.0.0"
 dependencies = [
- "derive-where",
  "glam",
  "keyboard-types",
  "petgraph",

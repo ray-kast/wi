@@ -6,13 +6,13 @@ use petgraph::{
 };
 use wi_core::{
     make_mut,
-    opinions::graph::{helpers, Checked, Graph},
+    opinions::graph::{helpers, Checked, Graph, Node},
     traits::{CursorOps, EdgeOps, GraphWidgetTypes, NodeOps, UiOps},
-    ContinueOnce, Cursor, CursorUpdate, Port, Side, SidedPort, Status, Step, WCursor, WEdgeCursor,
-    WPort, WSidedPort, Yielded,
+    ContinueCx, ContinueOnce, Cursor, CursorUpdate, Port, Side, SidedPort, Status, Step, WCursor,
+    WEdgeCursor, WPort, WSidedPort, Yielded,
 };
 
-use super::node::NodeExt;
+use super::{node::NodeExt, GraphEditor};
 use crate::{
     graph::TuiNode,
     vector::{Point, Vector},
@@ -40,17 +40,21 @@ impl Cx<'_> {
     }
 }
 
-#[derive(Debug)]
-pub struct EditorCore<N> {
+pub type PrototypeCallback<N> =
+    Box<dyn FnOnce(Option<<N as Node>::Prototype>, &mut GraphEditor<N>, &mut Cx<'_>)>;
+
+pub struct EditorCore<N: TuiNode> {
     pub graph: Arc<Graph<N>>,
+    pub want_node_prototype: Option<PrototypeCallback<N>>,
 }
 
-impl<N> EditorCore<N> {
+impl<N: TuiNode> EditorCore<N> {
     #[inline]
     #[must_use]
     pub fn new(graph: Checked<Graph<N>>) -> Self {
         Self {
             graph: graph.into_inner(),
+            want_node_prototype: None,
         }
     }
 }
@@ -215,7 +219,22 @@ impl<N: TuiNode> NodeOps for EditorCore<N> {
         &'a mut self,
         then: Yielded<'a, '_, Self, Y, C>,
     ) {
-        todo!()
+        if let Some(p) = N::override_prototype() {
+            then.resume_now(self, p.ok());
+        } else {
+            let (then, _cx) = then.defer();
+            assert!(
+                self.want_node_prototype
+                    .replace(Box::new(|value, widget, cx| {
+                        then.continue_once(
+                            value,
+                            ContinueCx::new_deferred(&mut widget.core, &mut widget.driver, cx),
+                        );
+                    }))
+                    .is_none(),
+                "Node kind prompted while already in dialog"
+            );
+        }
     }
 
     fn create_node(
