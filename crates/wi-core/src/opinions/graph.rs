@@ -11,6 +11,22 @@ use wi_macros::impl_enum;
 
 use crate::Side;
 
+mod edge_ops;
+mod node_ops;
+
+pub mod helpers {
+    pub use super::{edge_ops::*, node_ops::*};
+
+    #[macro_export]
+    macro_rules! make_mut {
+        ($expr:expr) => {
+            Arc::make_mut(&mut $expr)
+        };
+    }
+
+    pub use make_mut;
+}
+
 pub type Graph<N> = StableDiGraph<Arc<N>, Edge>;
 
 pub trait NodeStyleArity {

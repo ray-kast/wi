@@ -58,6 +58,7 @@ impl Iterator for EdgeIter {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Edge {
     from: Point,
     to: Point,
@@ -67,7 +68,7 @@ pub struct Edge {
 
 impl Edge {
     #[inline]
-    pub fn new(from: Point, to: Point, radius: f64, bias_upward: bool) -> Self {
+    pub const fn new(from: Point, to: Point, radius: f64, bias_upward: bool) -> Self {
         Self {
             from,
             to,

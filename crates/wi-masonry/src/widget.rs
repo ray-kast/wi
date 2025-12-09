@@ -422,19 +422,21 @@ impl<N: WidgetNode + 'static> Widget for GraphEditor<N> {
             let to = edge.target();
             let &graph::Edge { from_port, to_port } = edge.weight();
 
-            if !focus_edge
+            if focus_edge
                 .is_some_and(|e| (e.from, e.to) == (Port(from, from_port), Port(to, to_port)))
             {
-                Self::paint_edge(
-                    cx,
-                    scene,
-                    tf,
-                    false,
-                    (&self.core.graph[from], from_port),
-                    (&self.core.graph[to], to_port),
-                    weight,
-                );
+                continue;
             }
+
+            Self::paint_edge(
+                cx,
+                scene,
+                tf,
+                false,
+                (&self.core.graph[from], from_port),
+                (&self.core.graph[to], to_port),
+                weight,
+            );
         }
 
         if let Some(e) = focus_edge {

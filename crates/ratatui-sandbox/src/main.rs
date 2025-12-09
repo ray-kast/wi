@@ -1,17 +1,21 @@
-use std::io;
+use std::{io, mem};
 
 use ratatui::{
     crossterm::event::{self, Event, KeyEvent, KeyEventKind},
     prelude::*,
 };
-use wi_ratatui::graph::{
-    Checked, Edge, Graph, Label, LargeStyle, Port, Ports, SmallStyle, StyleKind, WidgetLabel,
-    WidgetStyle,
+use wi_ratatui::{
+    graph::{
+        Checked, Edge, Graph, Label, LargeStyle, Port, Ports, SmallStyle, StyleKind, WidgetLabel,
+        WidgetStyle,
+    },
+    vector::Point,
+    widget::Cx,
 };
 
 struct Node {
     name: &'static str,
-    pos: Position,
+    pos: Point,
     style: StyleKind<'static, (), (), ()>,
 }
 
@@ -33,7 +37,7 @@ fn ports<I: IntoIterator<Item = &'static str>, L: Default>(
 impl wi_ratatui::graph::Node for Node {
     type Icon = ();
     type PortShape = ();
-    type Position = Position;
+    type Position = Point;
     type Prototype = ();
     type Widget = ();
 
@@ -76,7 +80,7 @@ fn graph() -> Graph<Node> {
     let a = graph.add_node(
         Node {
             name: "thing",
-            pos: Position::new(0, 0),
+            pos: Point::new(0.0, 0.0),
             style: WidgetStyle {
                 label: WidgetLabel::default(),
                 in_port: None,
@@ -90,7 +94,7 @@ fn graph() -> Graph<Node> {
     let b = graph.add_node(
         Node {
             name: "smal",
-            pos: Position::new(30, 0),
+            pos: Point::new(30.0, 0.0),
             style: SmallStyle {
                 label: Label::default(),
                 in_ports: ports(["input", "extra"]),
@@ -104,7 +108,7 @@ fn graph() -> Graph<Node> {
     let c = graph.add_node(
         Node {
             name: "large node",
-            pos: Position::new(30, 6),
+            pos: Point::new(30.0, 6.0),
             style: LargeStyle {
                 label: Label::default(),
                 in_ports: ports(["first", "second"]),
@@ -118,7 +122,7 @@ fn graph() -> Graph<Node> {
     let d = graph.add_node(
         Node {
             name: "fold",
-            pos: Position::new(60, 7),
+            pos: Point::new(60.0, 7.0),
             style: SmallStyle {
                 label: Label::default(),
                 in_ports: ports(["a", "b"]),
@@ -156,23 +160,37 @@ fn graph() -> Graph<Node> {
 struct WidgetState {
     graph: wi_ratatui::widget::GraphEditor<Node>,
     graph_state: wi_ratatui::widget::State,
+    render_requested: bool,
 }
 
 fn render(state: &mut WidgetState) -> impl FnOnce(&mut Frame) {
     |frame| frame.render_stateful_widget(&state.graph, frame.area(), &mut state.graph_state)
 }
 
-fn render_loop<W: io::Write>(
+fn event_loop<W: io::Write>(
     term: &mut Terminal<CrosstermBackend<W>>,
     state: &mut WidgetState,
 ) -> io::Result<bool> {
-    term.draw(render(state))?;
+    if mem::take(&mut state.render_requested) {
+        term.draw(render(state))?;
+    }
 
     match event::read()? {
         Event::Key(KeyEvent {
+            code,
+            modifiers,
             kind: KeyEventKind::Press,
-            ..
-        }) => Ok(false),
+            state: key_state,
+        }) => {
+            let mut cx = Cx::new();
+
+            state
+                .graph
+                .handle_crossterm_key(code, modifiers, key_state, &mut cx);
+            state.render_requested = cx.render_requested;
+
+            Ok(!cx.quit_requested)
+        },
         _ => Ok(true),
     }
 }
@@ -180,10 +198,14 @@ fn render_loop<W: io::Write>(
 fn main() {
     let mut term = ratatui::init();
     let (graph, graph_state) = wi_ratatui::widget::GraphEditor::new(Checked::new(graph().into()));
-    let mut state = WidgetState { graph, graph_state };
+    let mut state = WidgetState {
+        graph,
+        graph_state,
+        render_requested: true,
+    };
 
     let err = loop {
-        match render_loop(&mut term, &mut state) {
+        match event_loop(&mut term, &mut state) {
             Ok(true) => (),
             Ok(false) => break None,
             Err(err) => break Some(err),

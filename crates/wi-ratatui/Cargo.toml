@@ -9,11 +9,17 @@ license.workspace = true
 
 [dependencies]
 derive-where.workspace = true
+glam = "0.30.9"
+keyboard-types.workspace = true
 petgraph.workspace = true
 ratatui.workspace = true
 smallvec.workspace = true
 tracing.workspace = true
 wi-core = { workspace = true, features = ["opinions"] }
+
+[features]
+crossterm = ["ratatui/crossterm"]
+default = ["crossterm"]
 
 [lints]
 workspace = true

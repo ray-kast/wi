@@ -1,13 +1,14 @@
-use ratatui::layout::Position;
 pub use wi_core::opinions::graph::*;
 
-pub trait TuiNode: Node<Position = Position> {
+use crate::vector::Point;
+
+pub trait TuiNode: Node<Position = Point> {
     #[inline]
-    fn width(&self) -> u16 {
+    fn width(&self) -> f32 {
         match self.style() {
-            StyleKind::Widget(_) => 8,
-            StyleKind::Small(_) => 12,
-            StyleKind::Large(_) => 16,
+            StyleKind::Widget(_) => 8.0,
+            StyleKind::Small(_) => 12.0,
+            StyleKind::Large(_) => 16.0,
         }
     }
 }

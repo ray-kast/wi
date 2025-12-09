@@ -6,13 +6,10 @@ use masonry::{
     kurbo::{Affine, Point, Rect, Size, Vec2},
     widgets::Flex,
 };
-use petgraph::{
-    prelude::*,
-    visit::{IntoEdgeReferences, IntoNodeReferences},
-};
+use petgraph::{prelude::*, visit::IntoNodeReferences};
 use wi_core::{
-    prelude::*, ContinueCx, Cursor, CursorUpdate, EdgeCursor, Port, Side, SidedPort, Status, Step,
-    WCursor, WEdgeCursor, WPort, WSidedPort, Yielded,
+    make_mut, opinions::graph::helpers, prelude::*, ContinueCx, Cursor, CursorUpdate, Port, Side,
+    SidedPort, Status, Step, WCursor, WEdgeCursor, WPort, WSidedPort, Yielded,
 };
 
 use super::{
@@ -24,7 +21,7 @@ use super::{
 };
 use crate::{
     drag::DragHandler,
-    graph::{Checked, Edge, Graph, WidgetNode},
+    graph::{Checked, Graph, WidgetNode},
     widget::node::NodeExt,
 };
 
@@ -34,12 +31,6 @@ pub struct EditorCore<N> {
     pub pan: Pan,
     pub zoom: Zoom,
     pub statusbar: WidgetPod<Flex>,
-}
-
-macro_rules! make_mut {
-    ($expr:expr) => {
-        Arc::make_mut(&mut $expr)
-    };
 }
 
 impl<N: WidgetNode> EditorCore<N> {
@@ -219,17 +210,12 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
         pred: F,
     ) -> Option<Self::NodeId> {
         let target = cell.node_target(self);
-        self.graph
-            .node_references()
-            .filter(|(i, _)| pred(i))
-            .map(|(i, n)| {
-                (
-                    i,
-                    (n.position() + n.outer_size().to_vec2() * 0.5).distance_squared(target),
-                )
-            })
-            .min_by(|(_, d), (_, e)| d.total_cmp(e))
-            .map(|(i, _)| i)
+        helpers::min_node_by(
+            &self.graph,
+            pred,
+            |n| (n.position() + n.outer_size().to_vec2() * 0.5).distance_squared(target),
+            f64::total_cmp,
+        )
     }
 
     fn nearest_port(
@@ -254,125 +240,49 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
         port: &WSidedPort<Self>,
         count: isize,
     ) -> Option<(NonZeroIsize, Self::PortId)> {
-        let SidedPort(side, Port(n, port)) = *port;
-        let node = &self.graph[n];
-
-        let res: u16 = usize::from(port)
-            .saturating_add_signed(count)
-            .min(node.arity(side).saturating_sub(1).into())
-            .try_into()
-            .unwrap_or_else(|_| unreachable!());
-
-        #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new((res.wrapping_sub(port) as i16).into()).map(|d| (d, res))
+        let &SidedPort(side, Port(node, port)) = port;
+        helpers::step_port_by(port, self.graph[node].arity(side), count)
     }
 
     fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
         &self,
-        port: &WSidedPort<Self>,
+        &port: &WSidedPort<Self>,
         cell: &Self::Cell,
         pred: F,
     ) -> Option<WEdgeCursor<Self>> {
-        fn edge_cursor<W: GraphWidgetTypes>(from: WPort<W>, to: WPort<W>) -> WEdgeCursor<W> {
-            EdgeCursor {
-                from,
-                to,
-                anchor: Side::In,
-            }
-        }
-
-        let SidedPort(side, port) = *port;
-        let node = &self.graph[port.0];
-
-        match side {
-            Side::In => self.graph.edge_references().find_map(|e| {
-                let Edge { from_port, to_port } = *e.weight();
-                if port != Port(e.target(), to_port) {
-                    return None;
-                }
-
-                let cur = edge_cursor::<Self>(Port(e.source(), from_port), port);
-                pred(&cur).then_some(cur)
-            }),
-            Side::Out => {
-                let pos = cell.edge_target(self);
-
-                self.graph
-                    .edge_references()
-                    .filter_map(|e| {
-                        let Edge { from_port, to_port } = *e.weight();
-                        if port != Port(e.source(), from_port) {
-                            return None;
-                        }
-
-                        let cur = edge_cursor::<Self>(port, Port(e.target(), to_port));
-                        if !pred(&cur) {
-                            return None;
-                        }
-
-                        Some((
-                            cur,
-                            node.edge_midpoint(port.1, &self.graph[cur.to.0], cur.to.1)
-                                .distance_squared(pos),
-                        ))
-                    })
-                    .min_by(|(_, d), (_, e)| d.total_cmp(e))
-                    .map(|(e, _)| e)
+        let target = cell.edge_target(self);
+        helpers::min_edge_by(
+            &self.graph,
+            port,
+            pred,
+            |from, from_port, to, to_port| {
+                from.edge_midpoint(from_port, to, to_port)
+                    .distance_squared(target)
             },
-        }
+            f64::total_cmp,
+        )
     }
 
     fn step_edge_by(
         &self,
-        edge: &WEdgeCursor<Self>,
+        &edge: &WEdgeCursor<Self>,
         count: isize,
     ) -> Option<(NonZeroIsize, WPort<Self>)> {
-        let (anchor, &port) = edge.anchor_port();
-        let node = &self.graph[port.0];
-        let mut ports: Vec<_> = match anchor {
-            Side::In => return None,
-            Side::Out => self
-                .graph
-                .edge_references()
-                .filter(|e| edge.from == Port(e.source(), e.weight().from_port))
-                .map(|e| {
-                    let w = e.weight();
-                    (
-                        Port(e.target(), w.to_port),
-                        node.edge_midpoint(w.from_port, &self.graph[e.target()], w.to_port),
-                    )
-                })
-                .collect(),
-        };
-
-        ports.sort_unstable_by(|(p1, o1), (p2, o2)| {
-            o1.y.total_cmp(&o2.y)
-                .then_with(|| o1.x.total_cmp(&o2.x))
-                .then_with(|| p1.0.cmp(&p2.0))
-                .then_with(|| p1.1.cmp(&p2.1))
-        });
-
-        let port = *edge.free_port();
-        let idx = ports
-            .iter()
-            .enumerate()
-            .find_map(|(i, (p, _))| (*p == port).then_some(i))
-            .unwrap();
-
-        let res = idx
-            .saturating_add_signed(count)
-            .min(ports.len().checked_sub(1)?);
-
-        #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-        NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, ports[res].0))
+        helpers::step_edge_by(
+            &self.graph,
+            edge,
+            count,
+            |from, from_port, to, to_port| from.edge_midpoint(from_port, to, to_port),
+            |o1, o2| o1.y.total_cmp(&o2.y).then_with(|| o1.x.total_cmp(&o2.x)),
+        )
     }
 
-    fn step_point_by(&self, point: &Self::Point, step: Step, count: usize) -> Self::Point {
+    fn step_point_by(&self, &point: &Self::Point, step: Step, count: usize) -> Self::Point {
         #![expect(clippy::cast_precision_loss)]
 
         const STEP: f64 = 16.0;
 
-        *point
+        point
             + (count as f64)
                 * match step {
                     Step::Left => Vec2::new(-STEP, 0.0),
@@ -408,24 +318,17 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
 
 impl<N: WidgetNode> EdgeOps for EditorCore<N> {
     fn create_edge(&mut self, from: WPort<Self>, to: WPort<Self>, mut cx: Self::Context<'_, '_>) {
-        make_mut!(self.graph).add_edge(from.0, to.0, Edge {
-            from_port: from.1,
-            to_port: to.1,
-        });
+        helpers::create_edge(make_mut!(self.graph), from, to);
         cx.request_render();
     }
 
     fn delete_edge(
         &mut self,
-        from: &WPort<Self>,
-        to: &WPort<Self>,
+        &from: &WPort<Self>,
+        &to: &WPort<Self>,
         mut cx: Self::Context<'_, '_>,
     ) -> bool {
-        let Some(e) = self
-            .graph
-            .edges_connecting(from.0, to.0)
-            .find(|e| e.weight().from_port == from.1 && e.weight().to_port == to.1)
-        else {
+        let Some(e) = helpers::find_edge(&self.graph, from, to) else {
             return false;
         };
         let e = e.id();

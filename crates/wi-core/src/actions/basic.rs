@@ -1,4 +1,5 @@
 use super::prelude::*;
+use crate::LastChord;
 
 pub mod actions {
     use crate::{actions::ActionKind, mode::ModeKind};
@@ -28,6 +29,7 @@ impl<W: GraphWidgetTypes + ?Sized> EditorAction<W> for actions::PushCount {
             .checked_mul(10)
             .and_then(|c| c.checked_add(digit))
             .and_then(NonZero::new);
+        cx.driver.last_op = LastChord::default();
         true
     }
 }

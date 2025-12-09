@@ -1,15 +1,44 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, num::NonZeroIsize, sync::Arc};
 
-use petgraph::graph::NodeIndex;
-use ratatui::layout::Position;
+use petgraph::{
+    graph::NodeIndex,
+    visit::{EdgeRef, IntoNodeReferences},
+};
 use wi_core::{
-    opinions::graph::{Checked, Graph},
-    traits::{CursorOps, GraphWidgetTypes},
+    make_mut,
+    opinions::graph::{helpers, Checked, Graph},
+    traits::{CursorOps, EdgeOps, GraphWidgetTypes, NodeOps, UiOps},
+    ContinueOnce, Cursor, CursorUpdate, Port, Side, SidedPort, Status, Step, WCursor, WEdgeCursor,
+    WPort, WSidedPort, Yielded,
 };
 
-use crate::graph::TuiNode;
+use super::node::NodeExt;
+use crate::{
+    graph::TuiNode,
+    vector::{Point, Vector},
+};
 
-pub struct Cx<'w>(PhantomData<&'w ()>);
+#[derive(Debug)]
+pub struct Cx<'w> {
+    pub render_requested: bool,
+    pub quit_requested: bool,
+    pub graph_changed: bool,
+    _p: PhantomData<&'w ()>,
+}
+
+impl Cx<'_> {
+    #[expect(clippy::new_without_default)]
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            render_requested: false,
+            quit_requested: false,
+            graph_changed: false,
+            _p: PhantomData,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct EditorCore<N> {
@@ -31,7 +60,7 @@ impl<N: TuiNode> GraphWidgetTypes for EditorCore<N> {
     type Context<'cx, 'widget: 'cx> = &'cx mut Cx<'widget>;
     type NodeId = NodeIndex;
     type NodeKind = N::Prototype;
-    type Point = Position;
+    type Point = Point;
     type PortId = u16;
 
     #[inline]
@@ -42,9 +71,15 @@ impl<N: TuiNode> GraphWidgetTypes for EditorCore<N> {
     }
 }
 
+#[inline]
+fn dist_squared(a: Point, b: Point) -> f32 { a.as_vec().distance_squared(b.as_vec()) }
+
 impl<N: TuiNode> CursorOps for EditorCore<N> {
-    fn default_cursor(&self) -> wi_core::WCursor<Self> {
-        wi_core::Cursor::FixedPoint(Position::ORIGIN)
+    fn default_cursor(&self) -> WCursor<Self> {
+        self.graph
+            .node_references()
+            .next()
+            .map_or(Cursor::FixedPoint(Point::ZERO), |(k, _)| Cursor::Node(k))
     }
 
     fn nearest_node_where<F: Fn(&Self::NodeId) -> bool>(
@@ -52,53 +87,166 @@ impl<N: TuiNode> CursorOps for EditorCore<N> {
         cell: &Self::Cell,
         pred: F,
     ) -> Option<Self::NodeId> {
-        todo!()
+        let target = cell.node_target(self);
+        helpers::min_node_by(
+            &self.graph,
+            pred,
+            |n| {
+                let pos = n.position() + 0.5 * n.outer_size();
+                dist_squared(pos, target)
+            },
+            f32::total_cmp,
+        )
     }
 
     fn nearest_port(
         &self,
-        node: &Self::NodeId,
-        side: wi_core::Side,
+        &n: &Self::NodeId,
+        side: Side,
         cell: &Self::Cell,
     ) -> Option<Self::PortId> {
-        todo!()
+        let node = &self.graph[n];
+        let len = node.arity(side);
+        let pos = cell.port_target(self, side);
+
+        let (port, _) = (0..len)
+            .map(|p| (p, dist_squared(node.port_pos(p, side, false), pos)))
+            .min_by(|(_, d), (_, e)| d.total_cmp(e))?;
+
+        Some(port)
     }
 
     fn step_port_by(
         &self,
-        port: &wi_core::WSidedPort<Self>,
+        port: &WSidedPort<Self>,
         count: isize,
-    ) -> Option<(std::num::NonZeroIsize, Self::PortId)> {
-        todo!()
+    ) -> Option<(NonZeroIsize, Self::PortId)> {
+        let &SidedPort(side, Port(node, port)) = port;
+        helpers::step_port_by(port, self.graph[node].arity(side), count)
     }
 
-    fn nearest_edge_where<F: Fn(&wi_core::WEdgeCursor<Self>) -> bool>(
+    fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
         &self,
-        port: &wi_core::WSidedPort<Self>,
+        &port: &WSidedPort<Self>,
         cell: &Self::Cell,
         pred: F,
-    ) -> Option<wi_core::WEdgeCursor<Self>> {
-        todo!()
+    ) -> Option<WEdgeCursor<Self>> {
+        let target = cell.edge_target(self);
+        helpers::min_edge_by(
+            &self.graph,
+            port,
+            pred,
+            |from, from_port, to, to_port| {
+                dist_squared(from.edge_midpoint(from_port, to, to_port), target)
+            },
+            f32::total_cmp,
+        )
     }
 
     fn step_edge_by(
         &self,
-        edge: &wi_core::WEdgeCursor<Self>,
+        &edge: &WEdgeCursor<Self>,
         count: isize,
-    ) -> Option<(std::num::NonZeroIsize, wi_core::WPort<Self>)> {
-        todo!()
+    ) -> Option<(NonZeroIsize, WPort<Self>)> {
+        helpers::step_edge_by(
+            &self.graph,
+            edge,
+            count,
+            |from, from_port, to, to_port| from.edge_midpoint(from_port, to, to_port).as_vec(),
+            |o1, o2| o1.y.total_cmp(&o2.y).then_with(|| o1.x.total_cmp(&o2.x)),
+        )
     }
 
-    fn step_point_by(&self, point: &Self::Point, step: wi_core::Step, count: usize) -> Self::Point {
-        todo!()
+    fn step_point_by(&self, &point: &Self::Point, step: Step, count: usize) -> Self::Point {
+        #![expect(clippy::cast_precision_loss)]
+
+        const STEP: f32 = 16.0;
+
+        point
+            + (count as f32)
+                * match step {
+                    Step::Left => Vector::new(-STEP, 0.0),
+                    Step::Down => Vector::new(0.0, STEP),
+                    Step::Up => Vector::new(0.0, -STEP),
+                    Step::Right => Vector::new(STEP, 0.0),
+                }
     }
 
     fn update_cursor(
         &mut self,
-        update: wi_core::CursorUpdate,
-        cursor: &wi_core::WCursor<Self>,
+        update: CursorUpdate,
+        cursor: &WCursor<Self>,
         cx: Self::Context<'_, '_>,
+    ) {
+        cx.render_requested = true;
+    }
+}
+
+impl<N: TuiNode> EdgeOps for EditorCore<N> {
+    fn create_edge(&mut self, from: WPort<Self>, to: WPort<Self>, cx: Self::Context<'_, '_>) {
+        helpers::create_edge(make_mut!(self.graph), from, to);
+        cx.render_requested = true;
+    }
+
+    fn delete_edge(
+        &mut self,
+        &from: &WPort<Self>,
+        &to: &WPort<Self>,
+        cx: Self::Context<'_, '_>,
+    ) -> bool {
+        let Some(e) = helpers::find_edge(&self.graph, from, to) else {
+            return false;
+        };
+        let e = e.id();
+
+        make_mut!(self.graph)
+            .remove_edge(e)
+            .unwrap_or_else(|| unreachable!());
+
+        cx.graph_changed = true;
+        cx.render_requested = true;
+
+        true
+    }
+}
+
+impl<N: TuiNode> NodeOps for EditorCore<N> {
+    fn prompt_node_kind<'a, Y, C: ContinueOnce<Self, Y, Option<Self::NodeKind>>>(
+        &'a mut self,
+        then: Yielded<'a, '_, Self, Y, C>,
     ) {
         todo!()
     }
+
+    fn create_node(
+        &mut self,
+        kind: Self::NodeKind,
+        position: Self::Point,
+        cx: Self::Context<'_, '_>,
+    ) {
+        make_mut!(self.graph).add_node(N::create(kind, position).into());
+
+        cx.graph_changed = true;
+        cx.render_requested = true;
+    }
+
+    fn delete_node(&mut self, &node: &Self::NodeId, cx: Self::Context<'_, '_>) -> bool {
+        if make_mut!(self.graph).remove_node(node).is_none() {
+            return false;
+        }
+
+        cx.graph_changed = true;
+        cx.render_requested = true;
+
+        true
+    }
+}
+
+impl<N: TuiNode> UiOps for EditorCore<N> {
+    fn update_status(&mut self, _status: Status, cx: Self::Context<'_, '_>) {
+        cx.render_requested = true;
+    }
+
+    #[inline]
+    fn quit(&mut self, cx: Self::Context<'_, '_>) { cx.quit_requested = true; }
 }
