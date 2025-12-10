@@ -19,5 +19,14 @@ pub const M_CMD: Modifiers = Modifiers::CONTROL.union(Modifiers::SHIFT);
 /// Default CMD key, rebound to CTRL+SHIFT on non-Apple targets
 pub const M_CMD: Modifiers = Modifiers::META;
 
+#[cfg(not(target_vendor = "apple"))]
+/// Word-wise movement key, CTRL on non-Apple targets and Option on Apple targets
+pub const M_WORD: Modifiers = Modifiers::CONTROL;
+#[cfg(target_vendor = "apple")]
+/// Word-wise movement key, CTRL on non-Apple targets and Option on Apple targets
+pub const M_WORD: Modifiers = Modifiers::ALT;
+
+pub const M_LINE: Modifiers = M_CMD;
+
 pub const M_ALT: Modifiers = Modifiers::ALT;
 pub const M_SHIFT: Modifiers = Modifiers::SHIFT;
