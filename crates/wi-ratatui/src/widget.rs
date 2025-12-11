@@ -15,15 +15,14 @@ use ratatui::{
 use wi_core::{
     opinions::graph::{self, Checked, Graph, Label, WidgetLabel},
     ActionKind, CurrentOperatorStatus, Cursor, EdgeCursor, GraphWidgetDriver, LastChord, ModeKind,
-    Port, Side, SidedPort, Status, WPort,
+    Port, Side, SidedPort, Status, WSidedPort,
 };
 
 use self::core::EditorCore;
 pub use self::core::{Cx, PrototypeCallback};
-use super::vector::Point;
 use crate::{
     graph::{NodeStyle as _, StyleKind as NodeStyle, TuiNode},
-    vector::{Insets, SignedRect},
+    vector::{Insets, Point, SignedRect},
     widget::{edge::Edge, node::NodeExt, text::Layout},
 };
 
@@ -252,7 +251,7 @@ impl<N: TuiNode> GraphEditor<N> {
         buf: &mut Buffer,
         node: (NodeIndex, &Arc<N>),
         focus_node: Option<NodeIndex>,
-        focus_port: Option<(Side, &WPort<EditorCore<N>>)>,
+        focus_port: Option<WSidedPort<EditorCore<N>>>,
     ) {
         let (idx, node) = node;
         let focused = focus_node == Some(idx);
@@ -336,7 +335,7 @@ impl<N: TuiNode> GraphEditor<N> {
                     buf,
                     pos,
                     Side::In,
-                    focus_port == Some((Side::In, &Port(idx, i))),
+                    focus_port == Some(SidedPort(Side::In, Port(idx, i))),
                 );
             }
 
@@ -374,7 +373,7 @@ impl<N: TuiNode> GraphEditor<N> {
                     buf,
                     pos,
                     Side::Out,
-                    focus_port == Some((Side::Out, &Port(idx, i))),
+                    focus_port == Some(SidedPort(Side::Out, Port(idx, i))),
                 );
             }
 
@@ -528,9 +527,9 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
                     focus_edge = None;
                     focus_point = None;
                 },
-                &Cursor::Port(SidedPort(s, ref p)) => {
+                &Cursor::Port(p) => {
                     focus_node = None;
-                    focus_port = Some((s, p));
+                    focus_port = Some(p);
                     focus_edge = None;
                     focus_point = None;
                 },

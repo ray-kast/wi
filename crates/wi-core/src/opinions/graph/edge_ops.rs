@@ -73,7 +73,7 @@ pub fn step_edge_by<N, T, M: Fn(&Arc<N>, u16, &Arc<N>, u16) -> T, C: Fn(&T, &T) 
     map: M,
     cmp: C,
 ) -> Option<(NonZeroIsize, Port<NodeIndex, u16>)> {
-    let (anchor, &port) = edge.anchor_port();
+    let (anchor, &port) = edge.anchor();
     let node = &graph[port.0];
     let mut ports: Vec<_> = match anchor {
         Side::In => return None,

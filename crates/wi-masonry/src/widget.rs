@@ -19,7 +19,7 @@ use smallvec::smallvec;
 use wi_core::{
     modifiers::{M_CTRL, M_NONE, M_SHIFT},
     opinions::graph::{Label, NodeStyleArity, StyleKind},
-    Cursor, GraphWidgetDriver, Port, Side, SidedPort, WPort,
+    Cursor, GraphWidgetDriver, Port, Side, SidedPort, WSidedPort,
 };
 
 use self::{core::EditorCore, edge::Edge};
@@ -95,7 +95,7 @@ impl<N: WidgetNode> GraphEditor<N> {
         tf: Affine,
         node: (NodeIndex, &N),
         focus_node: Option<NodeIndex>,
-        focus_port: Option<(Side, &WPort<EditorCore<N>>)>,
+        focus_port: Option<WSidedPort<EditorCore<N>>>,
         weight: f64,
     ) {
         // HACK: this should be in layout()
@@ -296,7 +296,7 @@ impl<N: WidgetNode> GraphEditor<N> {
                 scene,
                 tf,
                 node.port_pos(port, Side::In),
-                focus_port == Some((Side::In, &Port(id, port))),
+                focus_port == Some(SidedPort(Side::In, Port(id, port))),
                 weight,
             );
         }
@@ -307,7 +307,7 @@ impl<N: WidgetNode> GraphEditor<N> {
                 scene,
                 tf,
                 node.port_pos(port, Side::Out),
-                focus_port == Some((Side::Out, &Port(id, port))),
+                focus_port == Some(SidedPort(Side::Out, Port(id, port))),
                 weight,
             );
         }
@@ -397,9 +397,9 @@ impl<N: WidgetNode + 'static> Widget for GraphEditor<N> {
                 focus_edge = None;
                 focus_point = None;
             },
-            &Cursor::Port(SidedPort(s, ref p)) => {
+            &Cursor::Port(p) => {
                 focus_node = None;
-                focus_port = Some((s, p));
+                focus_port = Some(p);
                 focus_edge = None;
                 focus_point = None;
             },

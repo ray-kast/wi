@@ -241,6 +241,15 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::StepCursor {
                     if let Some((_, p)) = widget.step_edge_by(&e, count) {
                         dec = n;
                         Cursor::Edge(e.step(p))
+                    } else if let anchor = e.anchor_port()
+                        && let Some((_, p)) =
+                            widget.step_port_by(&anchor, if vert_is_down(step) { 1 } else { -1 })
+                        && let Some(mut f) =
+                            widget.nearest_edge(&SidedPort(anchor.0, Port(anchor.1 .0, p)), cell)
+                    {
+                        f.anchor = e.anchor;
+                        dec = 1;
+                        Cursor::Edge(f)
                     } else {
                         dec = 0;
                         Cursor::Edge(e)

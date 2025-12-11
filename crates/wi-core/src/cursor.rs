@@ -22,7 +22,7 @@ impl<N, P> EdgeCursor<N, P> {
         }
     }
 
-    pub fn anchor_port(&self) -> (Side, &Port<N, P>) {
+    pub fn anchor(&self) -> (Side, &Port<N, P>) {
         (self.anchor.flip(), match self.anchor {
             Side::In => &self.from,
             Side::Out => &self.to,
@@ -53,6 +53,14 @@ impl<N, P> EdgeCursor<N, P> {
         };
 
         Self { from, to, anchor }
+    }
+}
+
+impl<N: Clone, P: Clone> EdgeCursor<N, P> {
+    #[inline]
+    pub fn anchor_port(&self) -> SidedPort<N, P> {
+        let (side, port) = self.anchor();
+        SidedPort(side, port.clone())
     }
 }
 
