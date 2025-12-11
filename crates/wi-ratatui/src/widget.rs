@@ -48,7 +48,9 @@ impl<N: TuiNode> GraphEditor<N> {
                 driver: GraphWidgetDriver::new(&core),
                 core,
             },
-            State(()),
+            State {
+                cursor_position: Position::ORIGIN,
+            },
         )
     }
 
@@ -221,7 +223,15 @@ mod crossterm {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct State(());
+pub struct State {
+    cursor_position: Position,
+}
+
+impl State {
+    #[inline]
+    #[must_use]
+    pub fn cursor_position(&self) -> Position { self.cursor_position }
+}
 
 impl<N: TuiNode> GraphEditor<N> {
     fn paint_port(area: Rect, buf: &mut Buffer, pos: Position, side: Side, focused: bool) {
@@ -501,7 +511,7 @@ impl<N: TuiNode> GraphEditor<N> {
 impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
     type State = State;
 
-    fn render(self, mut area: Rect, buf: &mut Buffer, State(()): &mut Self::State) {
+    fn render(self, mut area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if area.height == 0 {
             return;
         }
@@ -519,6 +529,7 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
             let focus_port;
             let focus_edge;
             let focus_point;
+            let focus_pos;
 
             match self.driver.cursor() {
                 &Cursor::Node(n) => {
@@ -526,25 +537,39 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
                     focus_port = None;
                     focus_edge = None;
                     focus_point = None;
+                    focus_pos = self.core.graph[n]
+                        .outer_rect()
+                        .and_then(SignedRect::as_center);
                 },
                 &Cursor::Port(p) => {
                     focus_node = None;
                     focus_port = Some(p);
                     focus_edge = None;
                     focus_point = None;
+                    focus_pos = self.core.graph[p.1 .0]
+                        .port_pos(p.1 .1, p.0, false)
+                        .to_position();
                 },
                 Cursor::Edge(e) => {
                     focus_node = None;
                     focus_port = Some(e.anchor_port());
                     focus_edge = Some(e);
                     focus_point = None;
+                    focus_pos = self.core.graph[e.from.0]
+                        .edge_midpoint(e.from.1, &self.core.graph[e.to.0], e.to.1)
+                        .to_position();
                 },
                 &Cursor::FixedPoint(p) => {
                     focus_node = None;
                     focus_port = None;
                     focus_edge = None;
                     focus_point = Some(p);
+                    focus_pos = p.to_position();
                 },
+            }
+
+            if let Some(focus_pos) = focus_pos {
+                state.cursor_position = focus_pos;
             }
 
             for edge in self.core.graph.edge_references() {

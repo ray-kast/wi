@@ -228,6 +228,21 @@ impl SignedRect {
     }
 
     #[must_use]
+    pub fn as_center(self) -> Option<Position> {
+        let Self {
+            x,
+            y,
+            width,
+            height,
+        } = self;
+
+        Some(Position {
+            x: x.saturating_add_unsigned(width / 2).try_into().ok()?,
+            y: y.saturating_add_unsigned(height / 2).try_into().ok()?,
+        })
+    }
+
+    #[must_use]
     pub const fn inset(self, insets: Insets) -> Self {
         let Self {
             x,

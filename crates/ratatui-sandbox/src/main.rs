@@ -173,6 +173,7 @@ fn event_loop<W: io::Write>(
 ) -> io::Result<bool> {
     if mem::take(&mut state.render_requested) {
         term.draw(render(state))?;
+        term.set_cursor_position(state.graph_state.cursor_position())?;
     }
 
     match event::read()? {

@@ -55,6 +55,9 @@ pub trait NodeExt: TuiNode {
     }
 
     #[inline]
+    fn outer_rect(&self) -> Option<SignedRect> { self.position().to_rect(self.outer_size()) }
+
+    #[inline]
     fn head_rect(&self) -> Option<SignedRect> {
         self.position().to_rect(Vector {
             x: self.width(),
