@@ -120,8 +120,9 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
     fn process(&self, count: Option<NonZeroU32>, mut cx: ActionCx<W>) -> bool {
         move_cursor(count, &mut cx, |count, cursor, widget, _| {
             let dec;
-            let next = match (count.get(), cursor) {
-                (_, Cursor::Node(n)) => {
+            let count = count.get();
+            let next = match cursor {
+                Cursor::Node(n) => {
                     // HACK: pattern types wen eta ;;
                     let c = Cursor::Node(n);
                     let cell = W::Cell::of_cursor(widget, &c);
@@ -134,11 +135,11 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
                         Cursor::Node(n)
                     }
                 },
-                (k, c @ (Cursor::Port(..) | Cursor::Edge(..))) if k % 2 == 0 => {
-                    dec = k;
+                c @ (Cursor::Port(..) | Cursor::Edge(..)) if count % 2 == 0 => {
+                    dec = count;
                     c
                 },
-                (k, Cursor::Port(p)) => {
+                Cursor::Port(p) => {
                     let c = Cursor::Port(p);
                     let cell = W::Cell::of_cursor(widget, &c);
                     let Cursor::Port(mut p) = c else {
@@ -147,19 +148,19 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::GoToOpposite {
                     if let Some(p2) = widget.nearest_port(&p.1 .0, p.0.flip(), &cell) {
                         p.0 = p.0.flip();
                         p.1 .1 = p2;
-                        dec = k;
+                        dec = count;
                         Cursor::Port(p)
                     } else {
                         dec = 0;
                         Cursor::Port(p)
                     }
                 },
-                (k, Cursor::Edge(mut e)) => {
+                Cursor::Edge(mut e) => {
                     e.anchor = e.anchor.flip();
-                    dec = k;
+                    dec = count;
                     Cursor::Edge(e)
                 },
-                (_, c @ Cursor::FixedPoint(..)) => {
+                c @ Cursor::FixedPoint(..) => {
                     dec = 0;
                     c
                 },
