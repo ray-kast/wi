@@ -41,6 +41,8 @@ impl wi_ratatui::graph::Node for Node {
     type Prototype = ();
     type Widget = ();
 
+    fn override_prototype() -> Option<Result<Self::Prototype, ()>> { Some(Ok(())) }
+
     fn create((): Self::Prototype, position: Self::Position) -> Self {
         Self {
             name: "tmp",

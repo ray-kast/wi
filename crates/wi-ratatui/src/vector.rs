@@ -27,8 +27,8 @@ impl RoundedRange {
         let min = start.min(end);
         let max = start.max(end);
 
-        let min_rounded = min.abs().round_ties_even() as u16;
-        let max_rounded = max.round_ties_even() as u16;
+        let min_rounded = min.abs().round() as u16;
+        let max_rounded = max.round() as u16;
 
         if !(kept_precision(min.abs(), min_rounded) && kept_precision(max, max_rounded)) {
             return None;
@@ -365,8 +365,8 @@ impl Point {
 
         let Self(vec) = self;
         Position {
-            x: vec.x.round_ties_even() as u16,
-            y: vec.y.round_ties_even() as u16,
+            x: vec.x.round() as u16,
+            y: vec.y.round() as u16,
         }
     }
 
