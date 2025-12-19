@@ -13,6 +13,7 @@ use wi_ratatui::{
     widget::Cx,
 };
 
+#[derive(Clone)]
 struct Node {
     name: &'static str,
     pos: Point,

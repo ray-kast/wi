@@ -8,6 +8,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+bitflags = "2.10.0"
 glam = "0.30.9"
 keyboard-types.workspace = true
 petgraph.workspace = true
@@ -15,6 +16,9 @@ ratatui.workspace = true
 smallvec.workspace = true
 tracing.workspace = true
 wi-core = { workspace = true, features = ["opinions"] }
+
+[build-dependencies]
+unicode_names2 = "2.0.0"
 
 [features]
 crossterm = ["ratatui/crossterm"]

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, num::NonZeroIsize, sync::Arc};
+use std::{cmp::Ordering, num::NonZeroI32, sync::Arc};
 
 use petgraph::{graph::NodeIndex, visit::IntoNodeReferences};
 
@@ -25,13 +25,13 @@ pub fn min_node_by<
 }
 
 #[must_use]
-pub fn step_port_by(port: u16, arity: u16, steps: isize) -> Option<(NonZeroIsize, u16)> {
-    let res: u16 = usize::from(port)
-        .saturating_add_signed(steps)
-        .min(arity.saturating_sub(1).into())
-        .try_into()
-        .unwrap_or_else(|_| unreachable!());
+pub fn step_port_by(port: u16, arity: u16, steps: i32) -> Option<(NonZeroI32, u16)> {
+    let res: u16 = u16::try_from(
+        u32::from(port)
+            .saturating_add_signed(steps)
+            .min(arity.saturating_sub(1).into()),
+    )
+    .unwrap_or_else(|_| unreachable!());
 
-    #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-    NonZeroIsize::new((res.wrapping_sub(port) as i16).into()).map(|d| (d, res))
+    NonZeroI32::new(res.abs_diff(port).into()).map(|d| (d, res))
 }

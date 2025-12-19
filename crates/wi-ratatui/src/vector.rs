@@ -10,6 +10,116 @@ pub struct Point(Vector);
 #[inline]
 fn kept_precision(f: f32, u: u16) -> bool { (f - f32::from(u)).abs() <= 0.5 }
 
+impl Point {
+    pub const ZERO: Self = Self(Vector::ZERO);
+
+    #[inline]
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self { Self(Vector { x, y }) }
+
+    #[inline]
+    #[must_use]
+    pub const fn from_vec(vec: Vector) -> Self { Self(vec) }
+
+    #[must_use]
+    pub const fn as_position_lossy(self) -> Position {
+        #![expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+
+        let Self(vec) = self;
+        Position {
+            x: vec.x.round() as u16,
+            y: vec.y.round() as u16,
+        }
+    }
+
+    #[must_use]
+    pub fn to_position(self) -> Option<Position> {
+        let Self(vec) = self;
+
+        if !(vec.x.is_finite() && vec.y.is_finite()) {
+            return None;
+        }
+
+        let pos = self.as_position_lossy();
+
+        (kept_precision(vec.x, pos.x) && kept_precision(vec.y, pos.y)).then_some(pos)
+    }
+
+    #[must_use]
+    pub fn to_position_signed(self) -> Option<SignedPosition> {
+        let Self(vec) = self;
+
+        if !(vec.x.is_finite() && vec.y.is_finite()) {
+            return None;
+        }
+
+        let x_rounded = vec.x.abs().round() as u16;
+        let y_rounded = vec.y.abs().round() as u16;
+
+        if !(kept_precision(vec.x.abs(), x_rounded) && kept_precision(vec.y.abs(), y_rounded)) {
+            return None;
+        }
+
+        Some(SignedPosition {
+            x: i32::from(x_rounded) * (1 - 2 * i32::from(vec.x.signum() == -1.0)),
+            y: i32::from(y_rounded) * (1 - 2 * i32::from(vec.y.signum() == -1.0)),
+        })
+    }
+
+    #[must_use]
+    pub fn to_rect(self, size: Vector) -> Option<SignedRect> {
+        let Self(vec) = self;
+        let x = RoundedRange::from_f32(vec.x, size.x)?;
+        let y = RoundedRange::from_f32(vec.y, size.y)?;
+
+        Some(SignedRect {
+            x: x.start,
+            y: y.start,
+            width: x.len,
+            height: y.len,
+        })
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn as_vec(&self) -> Vector { self.0 }
+}
+
+impl From<Position> for Point {
+    #[inline]
+    fn from(value: Position) -> Self {
+        Self(Vector {
+            x: value.x.into(),
+            y: value.y.into(),
+        })
+    }
+}
+
+impl From<Vector> for Point {
+    #[inline]
+    fn from(value: Vector) -> Self { Self(value) }
+}
+
+impl ops::Add<Vector> for Point {
+    type Output = Point;
+
+    #[inline]
+    fn add(self, rhs: Vector) -> Self::Output { Point(self.0 + rhs) }
+}
+
+impl ops::Sub<Vector> for Point {
+    type Output = Point;
+
+    #[inline]
+    fn sub(self, rhs: Vector) -> Self::Output { Point(self.0 - rhs) }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SignedPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
 struct RoundedRange {
     start: i32,
     len: u32,
@@ -346,82 +456,4 @@ impl SignedRect {
             ..self
         }
     }
-}
-
-impl Point {
-    pub const ZERO: Self = Self(Vector::ZERO);
-
-    #[inline]
-    #[must_use]
-    pub const fn new(x: f32, y: f32) -> Self { Self(Vector { x, y }) }
-
-    #[inline]
-    #[must_use]
-    pub const fn from_vec(vec: Vector) -> Self { Self(vec) }
-
-    #[must_use]
-    pub const fn as_position_lossy(self) -> Position {
-        #![expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-
-        let Self(vec) = self;
-        Position {
-            x: vec.x.round() as u16,
-            y: vec.y.round() as u16,
-        }
-    }
-
-    #[must_use]
-    pub fn to_position(self) -> Option<Position> {
-        let Self(vec) = self;
-        let pos = self.as_position_lossy();
-
-        (kept_precision(vec.x, pos.x) && kept_precision(vec.y, pos.y)).then_some(pos)
-    }
-
-    #[must_use]
-    pub fn to_rect(self, size: Vector) -> Option<SignedRect> {
-        let Self(vec) = self;
-        let x = RoundedRange::from_f32(vec.x, size.x)?;
-        let y = RoundedRange::from_f32(vec.y, size.y)?;
-
-        Some(SignedRect {
-            x: x.start,
-            y: y.start,
-            width: x.len,
-            height: y.len,
-        })
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn as_vec(&self) -> Vector { self.0 }
-}
-
-impl From<Position> for Point {
-    #[inline]
-    fn from(value: Position) -> Self {
-        Self(Vector {
-            x: value.x.into(),
-            y: value.y.into(),
-        })
-    }
-}
-
-impl From<Vector> for Point {
-    #[inline]
-    fn from(value: Vector) -> Self { Self(value) }
-}
-
-impl ops::Add<Vector> for Point {
-    type Output = Point;
-
-    #[inline]
-    fn add(self, rhs: Vector) -> Self::Output { Point(self.0 + rhs) }
-}
-
-impl ops::Sub<Vector> for Point {
-    type Output = Point;
-
-    #[inline]
-    fn sub(self, rhs: Vector) -> Self::Output { Point(self.0 - rhs) }
 }

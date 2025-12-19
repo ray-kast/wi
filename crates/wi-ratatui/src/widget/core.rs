@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZeroIsize, sync::Arc};
+use std::{marker::PhantomData, num::NonZeroI32, sync::Arc};
 
 use petgraph::{
     graph::NodeIndex,
@@ -78,6 +78,21 @@ impl<N: TuiNode> GraphWidgetTypes for EditorCore<N> {
 #[inline]
 fn dist_squared(a: Point, b: Point) -> f32 { a.as_vec().distance_squared(b.as_vec()) }
 
+fn step_point(point: Point, step: Step, count: u32) -> Point {
+    #![expect(clippy::cast_precision_loss)]
+
+    const STEP: f32 = 1.0;
+
+    point
+        + (count as f32)
+            * match step {
+                Step::Left => Vector::new(-STEP, 0.0),
+                Step::Down => Vector::new(0.0, STEP),
+                Step::Up => Vector::new(0.0, -STEP),
+                Step::Right => Vector::new(STEP, 0.0),
+            }
+}
+
 impl<N: TuiNode> CursorOps for EditorCore<N> {
     fn default_cursor(&self) -> WCursor<Self> {
         self.graph
@@ -123,8 +138,8 @@ impl<N: TuiNode> CursorOps for EditorCore<N> {
     fn step_port_by(
         &self,
         port: &WSidedPort<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortId)> {
+        count: i32,
+    ) -> Option<(NonZeroI32, Self::PortId)> {
         let &SidedPort(side, Port(node, port)) = port;
         helpers::step_port_by(port, self.graph[node].arity(side), count)
     }
@@ -150,8 +165,8 @@ impl<N: TuiNode> CursorOps for EditorCore<N> {
     fn step_edge_by(
         &self,
         &edge: &WEdgeCursor<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, WPort<Self>)> {
+        count: i32,
+    ) -> Option<(NonZeroI32, WPort<Self>)> {
         helpers::step_edge_by(
             &self.graph,
             edge,
@@ -161,19 +176,8 @@ impl<N: TuiNode> CursorOps for EditorCore<N> {
         )
     }
 
-    fn step_point_by(&self, &point: &Self::Point, step: Step, count: usize) -> Self::Point {
-        #![expect(clippy::cast_precision_loss)]
-
-        const STEP: f32 = 16.0;
-
-        point
-            + (count as f32)
-                * match step {
-                    Step::Left => Vector::new(-STEP, 0.0),
-                    Step::Down => Vector::new(0.0, STEP),
-                    Step::Up => Vector::new(0.0, -STEP),
-                    Step::Right => Vector::new(STEP, 0.0),
-                }
+    fn step_point_by(&self, &point: &Self::Point, step: Step, count: u32) -> Self::Point {
+        step_point(point, step, count)
     }
 
     fn update_cursor(
@@ -247,6 +251,24 @@ impl<N: TuiNode> NodeOps for EditorCore<N> {
 
         cx.graph_changed = true;
         cx.render_requested = true;
+    }
+
+    fn nudge_node(
+        &mut self,
+        &node: &Self::NodeId,
+        step: Step,
+        count: u32,
+        cx: Self::Context<'_, '_>,
+    ) -> bool {
+        let Some(pos) = make_mut!(make_mut!(self.graph)[node]).position_mut() else {
+            return false;
+        };
+
+        *pos = step_point(*pos, step, count);
+
+        cx.graph_changed = true;
+        cx.render_requested = true;
+        true
     }
 
     fn delete_node(&mut self, &node: &Self::NodeId, cx: Self::Context<'_, '_>) -> bool {

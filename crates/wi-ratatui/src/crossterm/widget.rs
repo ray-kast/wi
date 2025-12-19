@@ -78,7 +78,7 @@ impl<N: TuiNode> GraphEditor<N> {
             KeyCode::F(33) => NamedKey::F33,
             KeyCode::F(34) => NamedKey::F34,
             KeyCode::F(35) => NamedKey::F35,
-            KeyCode::Char(c) => return self.handle_char_input(&c.to_string(), mods_out, cx),
+            KeyCode::Char(c) => return self.handle_char_input(c, mods_out, cx),
             KeyCode::Esc => NamedKey::Escape,
             KeyCode::CapsLock => NamedKey::CapsLock,
             KeyCode::ScrollLock => NamedKey::ScrollLock,

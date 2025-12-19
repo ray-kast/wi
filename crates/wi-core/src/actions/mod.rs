@@ -2,12 +2,13 @@ mod basic;
 mod create;
 mod cursor;
 mod delete;
+mod position;
 mod quit;
 
 pub mod all {
     pub use super::{
         basic::actions::*, create::actions::*, cursor::actions::*, delete::actions::*,
-        quit::actions::*,
+        position::actions::*, quit::actions::*,
     };
 }
 
@@ -130,7 +131,7 @@ mod imp {
     #[impl_enum]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum SimpleAction {
-        // Basic
+        // From basic
         PushCount(PushCount),
         Repeat(Repeat),
         SetMode(SetMode),
@@ -143,6 +144,9 @@ mod imp {
 
         // From delete
         DeleteAtCursor(DeleteAtCursor),
+
+        // From position
+        Nudge(Nudge),
 
         // From quit
         Quit(Quit),
@@ -186,6 +190,10 @@ mod imp {
         GoToOpposite,
         GoToPort,
         ModeNormal,
+        NudgeDown,
+        NudgeLeft,
+        NudgeRight,
+        NudgeUp,
         PushCount,
         Quit,
         Repeat,
@@ -208,6 +216,10 @@ mod imp {
                 Self::GoToOpposite => "go to opposite",
                 Self::GoToPort => "go to port",
                 Self::ModeNormal => "normal mode",
+                Self::NudgeDown => "nudge down",
+                Self::NudgeLeft => "nudge left",
+                Self::NudgeRight => "nudge right",
+                Self::NudgeUp => "nudge up",
                 Self::PushCount => "push count",
                 Self::Quit => "quit",
                 Self::Repeat => "repeat",

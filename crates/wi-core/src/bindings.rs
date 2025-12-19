@@ -77,10 +77,15 @@ static_acceptors! {
     token Up = C('k', M_NONE) | N(K::ArrowUp, M_NONE) => "k";
     token Right = C('l', M_NONE) | N(K::ArrowRight, M_NONE) => "l";
 
-    token Opposite = C('%', M_NONE | M_SHIFT) => "%";
+    token NudgeLeft = C('h', M_SHIFT) | N(K::ArrowLeft, M_SHIFT) => "H";
+    token NudgeDown = C('j', M_SHIFT) | N(K::ArrowDown, M_SHIFT) => "J";
+    token NudgeUp = C('k', M_SHIFT) | N(K::ArrowUp, M_SHIFT) => "K";
+    token NudgeRight = C('l', M_SHIFT) | N(K::ArrowRight, M_SHIFT) => "L";
 
-    token DigitNonzero = C(c @ '1'..='9', M_NONE | M_SHIFT) => "";
-    token Digit = C(c @ '0'..='9', M_NONE | M_SHIFT) => "";
+    token Opposite = C('%', M_NONE) => "%";
+
+    token DigitNonzero = C(c @ '1'..='9', M_NONE) => "";
+    token Digit = C(c @ '0'..='9', M_NONE) => "";
 
     pub grammar CreateOp: CreateOut {
         CreateOp | Accept => yield CreateOpAction::Accept;
@@ -97,6 +102,11 @@ static_acceptors! {
         }
 
         GoOp {}
+
+        NudgeLeft => yield Nudge(Step::Left);
+        NudgeDown => yield Nudge(Step::Down);
+        NudgeUp => yield Nudge(Step::Up);
+        NudgeRight => yield Nudge(Step::Right);
 
         Repeat => yield Repeat;
 

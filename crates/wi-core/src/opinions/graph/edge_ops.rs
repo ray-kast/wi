@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, num::NonZeroIsize, sync::Arc};
+use std::{cmp::Ordering, num::NonZeroI32, sync::Arc};
 
 use petgraph::{
     graph::NodeIndex,
@@ -69,10 +69,10 @@ pub fn min_edge_by<
 pub fn step_edge_by<N, T, M: Fn(&Arc<N>, u16, &Arc<N>, u16) -> T, C: Fn(&T, &T) -> Ordering>(
     graph: &Graph<N>,
     edge: EdgeCursor<NodeIndex, u16>,
-    count: isize,
+    count: i32,
     map: M,
     cmp: C,
-) -> Option<(NonZeroIsize, Port<NodeIndex, u16>)> {
+) -> Option<(NonZeroI32, Port<NodeIndex, u16>)> {
     let (anchor, &port) = edge.anchor();
     let node = &graph[port.0];
     let mut ports: Vec<_> = match anchor {
@@ -105,11 +105,15 @@ pub fn step_edge_by<N, T, M: Fn(&Arc<N>, u16, &Arc<N>, u16) -> T, C: Fn(&T, &T) 
         .unwrap();
 
     let res = idx
-        .saturating_add_signed(count)
+        .saturating_add_signed(isize::try_from(count).unwrap_or(if count.is_negative() {
+            isize::MIN
+        } else {
+            isize::MAX
+        }))
         .min(ports.len().checked_sub(1)?);
 
     #[expect(clippy::cast_possible_wrap, reason = "The wrap here is intended")]
-    NonZeroIsize::new(res.wrapping_sub(idx) as isize).map(|d| (d, ports[res].0))
+    NonZeroI32::new(res.wrapping_sub(idx) as i32).map(|d| (d, ports[res].0))
 }
 
 pub fn create_edge<N>(graph: &mut Graph<N>, from: Port<NodeIndex, u16>, to: Port<NodeIndex, u16>) {

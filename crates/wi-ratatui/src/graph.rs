@@ -2,7 +2,7 @@ pub use wi_core::opinions::graph::*;
 
 use crate::vector::Point;
 
-pub trait TuiNode: Node<Position = Point> {
+pub trait TuiNode: Node<Position = Point> + Clone {
     #[inline]
     fn width(&self) -> f32 {
         match self.style() {

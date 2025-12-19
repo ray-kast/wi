@@ -8,6 +8,7 @@ use crate::{
     actions::{ActionCx, EditorAction, Kind},
     bindings::{ActionOut, Key},
     continuation::Dispatch,
+    modifiers::M_SHIFT,
     operators::{
         CurrentOperator, EditorOperator, Operator, OperatorCx, OperatorFlow, StartCx, StartOperator,
     },
@@ -25,26 +26,43 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
         ),
     )]
     #[inline]
-    pub fn handle_char_input(
+    pub fn handle_str_input(
         &mut self,
         widget: &mut W,
-        chars: &str,
+        s: &str,
         mods: Modifiers,
         cx: W::Context<'_, '_>,
     ) -> bool {
         self.mutate_check(widget, cx, |inner, curr_op, widget, mut cx| {
             let mut any_handled = false;
 
-            for char in chars.to_lowercase().chars() {
-                any_handled |= inner.handle_key(
-                    curr_op,
-                    widget,
-                    Key::Char(char, mods),
-                    W::reborrow_cx(&mut cx),
-                );
+            for chr in s.chars() {
+                any_handled |=
+                    inner.handle_char(curr_op, widget, chr, mods, W::reborrow_cx(&mut cx));
             }
 
             any_handled
+        })
+    }
+
+    #[instrument(
+        skip(self, widget, cx),
+        fields(
+            op = ?self.current_operator.as_ref().map(Kind::kind),
+            mode = ?self.inner.mode,
+            pending = ?self.inner.mode.pending_op(),
+        ),
+    )]
+    #[inline]
+    pub fn handle_char_input(
+        &mut self,
+        widget: &mut W,
+        chr: char,
+        mods: Modifiers,
+        cx: W::Context<'_, '_>,
+    ) -> bool {
+        self.mutate_check(widget, cx, |inner, curr_op, widget, cx| {
+            inner.handle_char(curr_op, widget, chr, mods, cx)
         })
     }
 
@@ -71,6 +89,34 @@ impl<W: GraphWidget + ?Sized> GraphWidgetDriver<W> {
 }
 
 impl<W: GraphWidget + ?Sized> DriverInner<W> {
+    fn handle_char(
+        &mut self,
+        current_operator: &mut CurrentOperator<W>,
+        widget: &mut W,
+        chr: char,
+        mut mods: Modifiers,
+        mut cx: W::Context<'_, '_>,
+    ) -> bool {
+        if chr.is_uppercase() {
+            mods.insert(M_SHIFT);
+
+            let mut any_handled = false;
+            for chr in chr.to_lowercase() {
+                any_handled |= self.handle_key(
+                    current_operator,
+                    widget,
+                    Key::Char(chr, mods),
+                    W::reborrow_cx(&mut cx),
+                );
+            }
+
+            any_handled
+        } else {
+            mods.remove(M_SHIFT);
+            self.handle_key(current_operator, widget, Key::Char(chr, mods), cx)
+        }
+    }
+
     fn handle_key(
         &mut self,
         current_operator: &mut CurrentOperator<W>,

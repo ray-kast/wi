@@ -18,12 +18,11 @@ use wi_core::{
     Port, Side, SidedPort, Status, WSidedPort,
 };
 
-use self::core::EditorCore;
 pub use self::core::{Cx, PrototypeCallback};
+use self::{core::EditorCore, edge::EdgeBuffer, node::NodeExt, text::Layout};
 use crate::{
     graph::{NodeStyle as _, StyleKind as NodeStyle, TuiNode},
     vector::{Insets, Point, SignedRect},
-    widget::{edge::Edge, node::NodeExt, text::Layout},
 };
 
 mod cell;
@@ -66,9 +65,13 @@ impl<N: TuiNode> GraphEditor<N> {
     }
 
     #[inline]
-    pub fn handle_char_input(&mut self, chars: &str, mods: Modifiers, cx: &mut Cx<'_>) -> bool {
-        self.driver
-            .handle_char_input(&mut self.core, chars, mods, cx)
+    pub fn handle_str_input(&mut self, s: &str, mods: Modifiers, cx: &mut Cx<'_>) -> bool {
+        self.driver.handle_str_input(&mut self.core, s, mods, cx)
+    }
+
+    #[inline]
+    pub fn handle_char_input(&mut self, chr: char, mods: Modifiers, cx: &mut Cx<'_>) -> bool {
+        self.driver.handle_char_input(&mut self.core, chr, mods, cx)
     }
 
     #[inline]
@@ -433,6 +436,8 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
                 state.cursor_position = focus_pos;
             }
 
+            let mut edges = EdgeBuffer::new(area.intersection(buf.area).as_size());
+
             for edge in self.core.graph.edge_references() {
                 let from = edge.source();
                 let to = edge.target();
@@ -447,14 +452,17 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
                 let from = &self.core.graph[from];
                 let to = &self.core.graph[to];
 
-                let Some(from_pos) = from.port_pos(from_port, Side::Out, true).to_position() else {
+                let Some(from_pos) = from
+                    .port_pos(from_port, Side::Out, true)
+                    .to_position_signed()
+                else {
                     continue;
                 };
-                let Some(to_pos) = to.port_pos(to_port, Side::In, true).to_position() else {
+                let Some(to_pos) = to.port_pos(to_port, Side::In, true).to_position_signed() else {
                     continue;
                 };
 
-                Edge::new(from_pos, to_pos, Color::White).render(area, buf);
+                edges.push(from_pos, to_pos, Color::White);
             }
 
             if let Some(&EdgeCursor {
@@ -466,12 +474,16 @@ impl<N: TuiNode> StatefulWidget for &GraphEditor<N> {
                 let from = &self.core.graph[from];
                 let to = &self.core.graph[to];
 
-                if let Some(from_pos) = from.port_pos(from_port, Side::Out, true).to_position()
-                    && let Some(to_pos) = to.port_pos(to_port, Side::In, true).to_position()
+                if let Some(from_pos) = from
+                    .port_pos(from_port, Side::Out, true)
+                    .to_position_signed()
+                    && let Some(to_pos) = to.port_pos(to_port, Side::In, true).to_position_signed()
                 {
-                    Edge::new(from_pos, to_pos, Color::LightBlue).render(area, buf);
+                    edges.push(from_pos, to_pos, Color::LightBlue);
                 }
             }
+
+            edges.render(area, buf);
 
             let area = area.intersection(buf.area);
 

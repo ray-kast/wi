@@ -1,4 +1,4 @@
-use std::num::NonZeroIsize;
+use std::num::NonZeroI32;
 
 use crate::{
     AlignCell, ContinueOnce, CursorUpdate, Side, Status, Step, WCursor, WEdgeCursor, WPort,
@@ -58,8 +58,8 @@ pub trait CursorOps: GraphWidgetTypes {
     fn step_port_by(
         &self,
         port: &WSidedPort<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortId)>;
+        count: i32,
+    ) -> Option<(NonZeroI32, Self::PortId)>;
 
     fn nearest_edge_where<F: Fn(&WEdgeCursor<Self>) -> bool>(
         &self,
@@ -80,10 +80,10 @@ pub trait CursorOps: GraphWidgetTypes {
     fn step_edge_by(
         &self,
         edge: &WEdgeCursor<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, WPort<Self>)>;
+        count: i32,
+    ) -> Option<(NonZeroI32, WPort<Self>)>;
 
-    fn step_point_by(&self, point: &Self::Point, step: Step, count: usize) -> Self::Point;
+    fn step_point_by(&self, point: &Self::Point, step: Step, count: u32) -> Self::Point;
 
     fn update_cursor(
         &mut self,
@@ -116,6 +116,14 @@ pub trait NodeOps: GraphWidgetTypes {
         position: Self::Point,
         cx: Self::Context<'_, '_>,
     );
+
+    fn nudge_node(
+        &mut self,
+        node: &Self::NodeId,
+        step: Step,
+        count: u32,
+        cx: Self::Context<'_, '_>,
+    ) -> bool;
 
     fn delete_node(&mut self, node: &Self::NodeId, cx: Self::Context<'_, '_>) -> bool;
 }

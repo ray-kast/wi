@@ -61,18 +61,11 @@ fn horiz_side(step: Step) -> Side {
 }
 
 #[inline]
-fn unsigned_steps(steps: u32) -> (usize, u32) {
-    let steps = usize::try_from(steps).unwrap_or(usize::MAX);
-    let dec = u32::try_from(steps).unwrap_or_else(|_| unreachable!());
-    (steps, dec)
-}
+fn signed_steps(pos: bool, steps: u32) -> (i32, u32) {
+    let steps = i32::try_from(steps).unwrap_or(i32::MAX);
+    let steps = if pos { steps } else { steps.saturating_neg() };
 
-#[inline]
-fn signed_steps(pos: bool, steps: u32) -> (isize, u32) {
-    let steps_abs = isize::try_from(steps).unwrap_or(isize::MAX);
-    let steps = if pos { steps_abs } else { -steps_abs };
-    let dec = u32::try_from(steps_abs).unwrap_or_else(|_| unreachable!());
-    (steps, dec)
+    (steps, steps.unsigned_abs())
 }
 
 fn move_cursor<W: CursorOps + ?Sized>(
@@ -257,8 +250,8 @@ impl<W: CursorOps + ?Sized> EditorAction<W> for actions::StepCursor {
                     }
                 },
                 (Cursor::FixedPoint(p), s) => {
-                    let (count, n) = unsigned_steps(steps.get());
-                    dec = n;
+                    let count = steps.get();
+                    dec = count;
                     Cursor::FixedPoint(widget.step_point_by(&p, s, count))
                 },
             };

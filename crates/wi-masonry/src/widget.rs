@@ -531,7 +531,7 @@ impl<N: WidgetNode + 'static> Widget for GraphEditor<N> {
             }) => {
                 if !self
                     .driver
-                    .handle_char_input(&mut self.core, s, modifiers, (&mut *cx).into())
+                    .handle_str_input(&mut self.core, s, modifiers, (&mut *cx).into())
                 {
                     return;
                 }
@@ -554,7 +554,7 @@ impl<N: WidgetNode + 'static> Widget for GraphEditor<N> {
             },
             TextEvent::Ime(Ime::Commit(s)) => {
                 self.driver
-                    .handle_char_input(&mut self.core, s, M_NONE, (&mut *cx).into());
+                    .handle_str_input(&mut self.core, s, M_NONE, (&mut *cx).into());
             },
             _ => return,
         }

@@ -1,4 +1,4 @@
-use std::{mem, num::NonZeroIsize, sync::Arc};
+use std::{mem, num::NonZeroI32, sync::Arc};
 
 use masonry::{
     core::{EventCtx, PointerInfo, PointerState, WidgetPod},
@@ -196,6 +196,21 @@ impl<N: WidgetNode> GraphWidgetTypes for EditorCore<N> {
     }
 }
 
+fn step_point(point: Point, step: Step, count: u32) -> Point {
+    #![expect(clippy::cast_precision_loss)]
+
+    const STEP: f64 = 16.0;
+
+    point
+        + (count as f64)
+            * match step {
+                Step::Left => Vec2::new(-STEP, 0.0),
+                Step::Down => Vec2::new(0.0, STEP),
+                Step::Up => Vec2::new(0.0, -STEP),
+                Step::Right => Vec2::new(STEP, 0.0),
+            }
+}
+
 impl<N: WidgetNode> CursorOps for EditorCore<N> {
     fn default_cursor(&self) -> WCursor<Self> {
         self.graph
@@ -238,8 +253,8 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
     fn step_port_by(
         &self,
         port: &WSidedPort<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, Self::PortId)> {
+        count: i32,
+    ) -> Option<(NonZeroI32, Self::PortId)> {
         let &SidedPort(side, Port(node, port)) = port;
         helpers::step_port_by(port, self.graph[node].arity(side), count)
     }
@@ -266,8 +281,8 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
     fn step_edge_by(
         &self,
         &edge: &WEdgeCursor<Self>,
-        count: isize,
-    ) -> Option<(NonZeroIsize, WPort<Self>)> {
+        count: i32,
+    ) -> Option<(NonZeroI32, WPort<Self>)> {
         helpers::step_edge_by(
             &self.graph,
             edge,
@@ -277,19 +292,9 @@ impl<N: WidgetNode> CursorOps for EditorCore<N> {
         )
     }
 
-    fn step_point_by(&self, &point: &Self::Point, step: Step, count: usize) -> Self::Point {
-        #![expect(clippy::cast_precision_loss)]
-
-        const STEP: f64 = 16.0;
-
-        point
-            + (count as f64)
-                * match step {
-                    Step::Left => Vec2::new(-STEP, 0.0),
-                    Step::Down => Vec2::new(0.0, STEP),
-                    Step::Up => Vec2::new(0.0, -STEP),
-                    Step::Right => Vec2::new(STEP, 0.0),
-                }
+    #[inline]
+    fn step_point_by(&self, &point: &Self::Point, step: Step, count: u32) -> Self::Point {
+        step_point(point, step, count)
     }
 
     fn update_cursor(
@@ -378,6 +383,24 @@ impl<N: WidgetNode> NodeOps for EditorCore<N> {
 
         cx.submit_action(self.change(Change::NodeCreated));
         cx.request_render();
+    }
+
+    fn nudge_node(
+        &mut self,
+        &node: &Self::NodeId,
+        step: Step,
+        count: u32,
+        mut cx: Self::Context<'_, '_>,
+    ) -> bool {
+        let Some(pos) = make_mut!(make_mut!(self.graph)[node]).position_mut() else {
+            return false;
+        };
+
+        *pos = step_point(*pos, step, count);
+
+        cx.submit_action(self.change(Change::NodeMoved));
+        cx.request_render();
+        true
     }
 
     fn delete_node(&mut self, &node: &Self::NodeId, mut cx: Self::Context<'_, '_>) -> bool {
